@@ -35,11 +35,11 @@ Changelog = "https://github.com/Dyl-M/pycarto/blob/main/CHANGELOG.md"
 dev = [
     { include-group = "test" },
     "ruff==0.15.12",
-    "mypy==1.20.2",
+    "mypy==2.0.0",
 ]
 test = [
     "pytest==9.0.3",
-    "pytest-regressions>=2.5,<3",
+    "pytest-regressions>=2.10.0,<3",
     "coverage==7.13.5",
 ]
 
