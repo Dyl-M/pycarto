@@ -15,9 +15,10 @@
 `pycarto` generates region SVG maps from a list of country ISO codes. A border-aware suggester proposes additional
 countries (full enclaves and high shared-border ratio neighbors) for visually cleaner regional maps.
 
-Built with [`geopandas`](https://geopandas.org/), [`topojson`](https://github.com/mattijn/topojson), and
-[`shapely`](https://shapely.readthedocs.io/). Source geometry is [Natural Earth](https://www.naturalearthdata.com/)
-1:50m (public domain).
+Built on [`geopandas`](https://geopandas.org/) (with [`pyogrio`](https://pyogrio.readthedocs.io/) +
+[`httpxyz`](https://codeberg.org/httpxyz/httpxyz) for I/O); [`topojson`](https://github.com/mattijn/topojson) lands
+with M2 and [`shapely`](https://shapely.readthedocs.io/) with M3. Source geometry is
+[Natural Earth](https://www.naturalearthdata.com/) 1:50m (public domain).
 
 The project was started as a side project to help fill out
 [Liquipedia's region maps category](https://liquipedia.net/commons/Category:Region_Maps), but the outputs are
@@ -57,10 +58,11 @@ build_map(
 suggestions = suggest_neighbors(["FRA", "DEU", "ITA", "AUT"])
 # -> [Suggestion(iso="CHE", reason="enclave", score=1.0,
 #                neighbors_in_selection=("FRA", "DEU", "ITA", "AUT"))]
-
 ```
+
+`build_map` also exposes a dry-run mode that returns suggestions without writing the SVG:
+
 ```python
-# Dry-run via build_map: returns suggestions without writing the SVG
 suggestions = build_map(
     iso_codes=["UKR", "POL", "LTU", "LVA", "RUS"],
     output_path="ignored.svg",

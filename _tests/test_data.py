@@ -9,12 +9,15 @@ import zipfile
 
 # Third-party
 import geopandas as gpd
+import httpxyz
 import pytest
 
 # Local
-from pycarto.data import NE_50M_SHP_NAME, ensure_natural_earth, load_countries, select
+from pycarto.data import NE_50M_SHP_NAME, NE_50M_URL, ensure_natural_earth, load_countries, select
 
 
+# Duck-typed stand-in: only ``status_code``, ``content``, and ``reason_phrase`` are wired because that's what
+# ``pycarto.data.ensure_natural_earth`` reads. Extend this if the SUT starts using ``text`` / ``headers`` / ``url``.
 class _FakeHttpxResponse:
     """Minimal stand-in for the response returned by ``httpxyz.get``."""
 
@@ -26,12 +29,19 @@ class _FakeHttpxResponse:
 
 
 def _fake_httpx_get_returning(response: _FakeHttpxResponse) -> Callable[..., _FakeHttpxResponse]:
-    """Return an ``httpxyz.get`` look-alike that always hands back the supplied canned response."""
+    """Return an ``httpxyz.get`` look-alike that records each call and hands back the supplied canned response.
 
-    def _get(*_args: object, **_kwargs: object) -> _FakeHttpxResponse:
-        """Ignore the URL and kwargs the SUT passes; return the captured response."""
+    The returned callable exposes a ``calls`` list attribute holding ``(args, kwargs)`` tuples — useful for asserting
+    that the SUT passed the expected URL / timeout / follow_redirects.
+    """
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def _get(*args: object, **kwargs: object) -> _FakeHttpxResponse:
+        """Record the call and return the canned response."""
+        calls.append((args, kwargs))
         return response
 
+    _get.calls = calls
     return _get
 
 
@@ -87,13 +97,16 @@ def test_ensure_natural_earth_downloads_and_extracts(
     payload = buf.getvalue()
 
     fake_response = _FakeHttpxResponse(status_code=200, content=payload)
-    monkeypatch.setattr("pycarto.data.httpxyz.get", _fake_httpx_get_returning(fake_response))
+    fake_get = _fake_httpx_get_returning(fake_response)
+    monkeypatch.setattr("pycarto.data.httpxyz.get", fake_get)
 
     with pytest.warns(UserWarning, match="Downloading Natural Earth"):
         result = ensure_natural_earth()
 
     assert result == tmp_path / "_data" / NE_50M_SHP_NAME
     assert result.read_bytes() == b"fake shapefile bytes"
+    # SUT must pass the canonical URL plus the timeout / redirect flags advertised in the docstring.
+    assert fake_get.calls == [((NE_50M_URL,), {"timeout": 30.0, "follow_redirects": True})]
 
 
 def test_ensure_natural_earth_raises_on_http_error(
@@ -114,8 +127,113 @@ def test_ensure_natural_earth_raises_on_http_error(
     ):
         ensure_natural_earth()
 
-    # Cache directory was created but is empty — no half-extracted state.
+    # HTTP failure preempts cache creation entirely (mkdir is deferred until just before extraction).
+    assert not (tmp_path / "_data").exists()
+
+
+def test_ensure_natural_earth_wraps_network_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A transport error from ``httpxyz`` surfaces as ``RuntimeError`` so the dep type doesn't leak to callers."""
+    monkeypatch.chdir(tmp_path)
+
+    def _raise_network(*_args: object, **_kwargs: object) -> None:
+        """Stand in for ``httpxyz.get`` and raise the kind of error a DNS failure would produce."""
+        raise httpxyz.ConnectError("simulated transport failure")
+
+    monkeypatch.setattr("pycarto.data.httpxyz.get", _raise_network)
+
+    with (
+        pytest.raises(RuntimeError, match="Network error fetching"),
+        pytest.warns(UserWarning, match="Downloading Natural Earth"),
+    ):
+        ensure_natural_earth()
+
+
+def test_ensure_natural_earth_rejects_zip_slip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A zip whose entries escape the staging directory is rejected before any file lands in the cache."""
+    monkeypatch.chdir(tmp_path)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("../escape.txt", b"never write this outside staging")
+        zf.writestr(NE_50M_SHP_NAME, b"benign")
+    payload = buf.getvalue()
+
+    fake_response = _FakeHttpxResponse(status_code=200, content=payload)
+    monkeypatch.setattr("pycarto.data.httpxyz.get", _fake_httpx_get_returning(fake_response))
+
+    with (
+        pytest.raises(RuntimeError, match="zip-slip"),
+        pytest.warns(UserWarning, match="Downloading Natural Earth"),
+    ):
+        ensure_natural_earth()
+
     assert not (tmp_path / "_data" / NE_50M_SHP_NAME).exists()
+    assert not (tmp_path.parent / "escape.txt").exists()
+
+
+def test_ensure_natural_earth_rejects_bundle_missing_expected_shp(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If the bundle extracts cleanly but doesn't contain the expected shapefile, raise rather than cache it."""
+    monkeypatch.chdir(tmp_path)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("some_other_file.txt", b"surprise")
+    payload = buf.getvalue()
+
+    fake_response = _FakeHttpxResponse(status_code=200, content=payload)
+    monkeypatch.setattr("pycarto.data.httpxyz.get", _fake_httpx_get_returning(fake_response))
+
+    with (
+        pytest.raises(RuntimeError, match=f"did not contain {NE_50M_SHP_NAME!r}"),
+        pytest.warns(UserWarning, match="Downloading Natural Earth"),
+    ):
+        ensure_natural_earth()
+
+    assert not (tmp_path / "_data" / NE_50M_SHP_NAME).exists()
+    assert list((tmp_path / "_data").iterdir()) == []
+
+
+def test_ensure_natural_earth_atomic_on_extract_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failure mid-extract must leave the cache root empty so the next call retries cleanly."""
+    monkeypatch.chdir(tmp_path)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(NE_50M_SHP_NAME, b"valid bytes")
+    payload = buf.getvalue()
+
+    fake_response = _FakeHttpxResponse(status_code=200, content=payload)
+    monkeypatch.setattr("pycarto.data.httpxyz.get", _fake_httpx_get_returning(fake_response))
+
+    def _failing_extractall(_self: zipfile.ZipFile, path: str) -> None:
+        """Simulate writing a partial file into staging before the OS errors out."""
+        Path(path, "partial.shp").write_bytes(b"corrupted")
+        raise OSError("simulated disk full")
+
+    monkeypatch.setattr(zipfile.ZipFile, "extractall", _failing_extractall)
+
+    with (
+        pytest.raises(OSError, match="simulated disk full"),
+        pytest.warns(UserWarning, match="Downloading Natural Earth"),
+    ):
+        ensure_natural_earth()
+
+    cache = tmp_path / "_data"
+    assert not (cache / NE_50M_SHP_NAME).exists()
+    assert not (cache / "partial.shp").exists()
+    assert list(cache.iterdir()) == []
 
 
 def test_load_countries_uppercases_columns(
@@ -168,3 +286,17 @@ def test_select_raises_on_missing_filter_field(fake_world: gpd.GeoDataFrame) -> 
     gdf = fake_world.drop(columns=["ISO_A3_EH"])
     with pytest.raises(ValueError, match="Neither 'ISO_A3_EH' nor fallback 'ISO_A3'"):
         select(gdf, ["BEL"])
+
+
+def test_select_accepts_lowercase_iso_codes(fake_world: gpd.GeoDataFrame) -> None:
+    """Codes are uppercased before the lookup, so lowercase input matches uppercase column values."""
+    sel = select(fake_world, ["bel", "nld", "lux"])
+    assert sel.shape[0] == 3
+    assert set(sel["ISO_A3_EH"]) == {"BEL", "NLD", "LUX"}
+
+
+def test_select_does_not_fall_back_for_non_eh_field(fake_world: gpd.GeoDataFrame) -> None:
+    """Non-`_EH` filter fields hard-fail when missing; no silent fallback to a stripped variant."""
+    with pytest.raises(ValueError, match=r"'ISO_A3_FOO' is not present") as exc_info:
+        select(fake_world, ["BEL"], filter_field="ISO_A3_FOO")
+    assert "fallback" not in str(exc_info.value)
