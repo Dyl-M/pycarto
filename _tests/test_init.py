@@ -1,7 +1,9 @@
 """Tests for the pycarto package initialization."""
 
+# Standard library
 import re
 
+# Local
 from pycarto import __author__, __version__
 
 

@@ -1,35 +1,57 @@
 """Tests for ``pycarto.data``."""
 
-from __future__ import annotations
-
+# Standard library
 import io
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
 import zipfile
 
+# Third-party
+import geopandas as gpd
 import pytest
 
+# Local
 from pycarto.data import NE_50M_SHP_NAME, ensure_natural_earth, load_countries, select
 
-if TYPE_CHECKING:
-    import geopandas as gpd
 
+class _FakeHTTPResponse:
+    """Minimal stand-in for the response returned by ``HTTPSConnection.getresponse``."""
 
-class _FakeUrlopenResponse:
-    """Minimal stand-in for the context manager returned by ``urllib.request.urlopen``."""
-
-    def __init__(self, payload: bytes) -> None:
+    def __init__(self, status: int, payload: bytes, reason: str = "OK") -> None:
+        """Record the canned status, reason, and payload that the response will surface."""
+        self.status = status
+        self.reason = reason
         self._payload = payload
 
-    def __enter__(self) -> _FakeUrlopenResponse:
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        return None
-
     def read(self) -> bytes:
+        """Return the in-memory payload, mirroring ``HTTPResponse.read``."""
         return self._payload
+
+
+def _build_fake_https_connection(response: _FakeHTTPResponse) -> type:
+    """Return an ``HTTPSConnection`` look-alike that hands out the supplied canned response."""
+
+    class _FakeHTTPSConnection:
+        """Minimal stand-in for ``http.client.HTTPSConnection``."""
+
+        def __init__(self, host: str, *, timeout: int | None = None) -> None:
+            """Record the host/timeout the SUT requested for later assertions."""
+            self.host = host
+            self.timeout = timeout
+
+        def request(self, method: str, path: str) -> None:
+            """Capture the GET path so tests can confirm the SUT issued the right call."""
+            self.method = method
+            self.path = path
+
+        def getresponse(self) -> _FakeHTTPResponse:
+            """Hand out the canned response."""
+            return response
+
+        def close(self) -> None:
+            """No-op: the fake holds no real resources."""
+
+    return _FakeHTTPSConnection
 
 
 @pytest.mark.parametrize("resolution", ["10m", "110m", "5m"])
@@ -43,17 +65,21 @@ def test_ensure_natural_earth_returns_cached_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When the shapefile already lives in the cache, no download is attempted."""
+    """When the shapefile already lives in the cache, no connection is opened."""
     cache = tmp_path / "_data"
     cache.mkdir()
     shp = cache / NE_50M_SHP_NAME
     shp.touch()
     monkeypatch.chdir(tmp_path)
 
-    def _no_network(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("ensure_natural_earth should not download when cache is populated")
+    class _NoNetwork:
+        """Sentinel ``HTTPSConnection`` replacement that fails the test if instantiated."""
 
-    monkeypatch.setattr("pycarto.data.urllib.request.urlopen", _no_network)
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            """Fail loudly if the SUT tries to open a connection."""
+            raise AssertionError("ensure_natural_earth should not connect when cache is populated")
+
+    monkeypatch.setattr("pycarto.data.HTTPSConnection", _NoNetwork)
 
     assert ensure_natural_earth() == shp
 
@@ -62,7 +88,7 @@ def test_ensure_natural_earth_rejects_non_https_url(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The defensive scheme guard rejects non-https URLs without hitting the network."""
+    """The defensive scheme guard rejects non-https URLs without opening a connection."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("pycarto.data.NE_50M_URL", "http://example.invalid/foo.zip")
 
@@ -74,7 +100,7 @@ def test_ensure_natural_earth_downloads_and_extracts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Happy path: download, extract, and return the resolved shapefile path."""
+    """Happy path: GET, extract, and return the resolved shapefile path."""
     monkeypatch.chdir(tmp_path)
 
     buf = io.BytesIO()
@@ -82,18 +108,36 @@ def test_ensure_natural_earth_downloads_and_extracts(
         zf.writestr(NE_50M_SHP_NAME, b"fake shapefile bytes")
     payload = buf.getvalue()
 
-    def _fake_urlopen(url: str, timeout: int = 30) -> _FakeUrlopenResponse:
-        assert url.startswith("https://")
-        assert timeout == 30
-        return _FakeUrlopenResponse(payload)
-
-    monkeypatch.setattr("pycarto.data.urllib.request.urlopen", _fake_urlopen)
+    fake_response = _FakeHTTPResponse(status=200, payload=payload)
+    monkeypatch.setattr("pycarto.data.HTTPSConnection", _build_fake_https_connection(fake_response))
 
     with pytest.warns(UserWarning, match="Downloading Natural Earth"):
         result = ensure_natural_earth()
 
     assert result == tmp_path / "_data" / NE_50M_SHP_NAME
     assert result.read_bytes() == b"fake shapefile bytes"
+
+
+def test_ensure_natural_earth_raises_on_http_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-200 response surfaces as a ``RuntimeError`` so it doesn't corrupt the cache."""
+    monkeypatch.chdir(tmp_path)
+
+    fake_response = _FakeHTTPResponse(status=404, payload=b"", reason="Not Found")
+    monkeypatch.setattr("pycarto.data.HTTPSConnection", _build_fake_https_connection(fake_response))
+
+    # The download-attempt UserWarning fires before we know it'll fail; that's honest behaviour
+    # (warning describes the attempt, error describes the failure), so just acknowledge it.
+    with (
+        pytest.raises(RuntimeError, match="HTTP 404 Not Found"),
+        pytest.warns(UserWarning, match="Downloading Natural Earth"),
+    ):
+        ensure_natural_earth()
+
+    # Cache directory was created but is empty — no half-extracted state.
+    assert not (tmp_path / "_data" / NE_50M_SHP_NAME).exists()
 
 
 def test_load_countries_uppercases_columns(

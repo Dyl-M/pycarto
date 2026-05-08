@@ -1,7 +1,6 @@
 """Shared pytest fixtures for pycarto tests."""
 
-from __future__ import annotations
-
+# Third-party
 import geopandas as gpd
 import pytest
 from shapely.geometry import box

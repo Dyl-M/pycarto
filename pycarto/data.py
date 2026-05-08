@@ -8,31 +8,29 @@ Three pieces:
   shapefiles.
 """
 
-from __future__ import annotations
-
+# Standard library
+from collections.abc import Iterable
+from http.client import HTTPSConnection
 import io
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
-import urllib.request
+from urllib.parse import urlparse
 import warnings
 import zipfile
 
+# Third-party
 import geopandas as gpd
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable
-
-    from geopandas import GeoDataFrame
+from geopandas import GeoDataFrame
 
 # Natural Earth canonical distribution endpoint. Serves the latest published release (no version pin):
 # regenerated outputs may differ if Natural Earth ships a new vintage between runs.
 NE_50M_URL = "https://naciscdn.org/naturalearth/50m/cultural/ne_50m_admin_0_countries.zip"
 NE_50M_SHP_NAME = "ne_50m_admin_0_countries.shp"
 
-# TODO(post-v1): pin reproducibility by recording an expected SHA256 of the zip and verifying on download.
-#   The natural-earth-vector GitHub repo does not ship the bundled zip as a release asset or repo path,
-#   so URL-based pinning isn't viable; content-hash pinning is the realistic option.
+# TODO(post-v1): pin reproducibility by recording an expected SHA256 of the zip and verifying on download. The
+#  natural-earth-vector GitHub repo does not ship the bundled zip as a release asset or repo path,so URL-based pinning
+#  isn't viable; content-hash pinning is the realistic option.
+
 # TODO(post-v1): support resolutions "10m" and "110m" (the signature already accepts the parameter).
 
 logger = logging.getLogger(__name__)
@@ -60,15 +58,23 @@ def ensure_natural_earth(resolution: str = "50m") -> Path:
     if shp_path.exists():
         return shp_path
 
-    if not NE_50M_URL.startswith("https://"):
+    parsed = urlparse(NE_50M_URL)
+    if parsed.scheme != "https":
         raise RuntimeError(f"Refusing to fetch non-https URL: {NE_50M_URL!r}")
 
     cache_dir.mkdir(parents=True, exist_ok=True)
     msg = f"Downloading Natural Earth 1:50m countries to {cache_dir}…"
     warnings.warn(msg, UserWarning, stacklevel=2)
     logger.info(msg)
-    with urllib.request.urlopen(NE_50M_URL, timeout=30) as resp:  # noqa: S310 — scheme guarded above
+    conn = HTTPSConnection(parsed.netloc, timeout=30)
+    try:
+        conn.request("GET", parsed.path)
+        resp = conn.getresponse()
+        if resp.status != 200:
+            raise RuntimeError(f"Failed to download {NE_50M_URL!r}: HTTP {resp.status} {resp.reason}")
         zip_bytes = resp.read()
+    finally:
+        conn.close()
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         zf.extractall(cache_dir)
     return shp_path
