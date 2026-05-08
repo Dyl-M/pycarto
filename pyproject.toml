@@ -23,7 +23,10 @@ classifiers = [
     "Topic :: Scientific/Engineering :: GIS",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-dependencies = []
+dependencies = [
+    "geopandas>=1.0,<2",
+    "pyogrio>=0.7",
+]
 
 [project.urls]
 Homepage = "https://github.com/Dyl-M/pycarto"
@@ -41,6 +44,7 @@ test = [
     "pytest==9.0.3",
     "pytest-regressions>=2.10.0,<3",
     "coverage==7.13.5",
+    "shapely>=2,<3",
 ]
 
 # --- Ruff ---
@@ -99,6 +103,10 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 show_error_codes = true
 
+[[tool.mypy.overrides]]
+module = ["geopandas.*"]
+ignore_missing_imports = true
+
 # --- Pytest ---
 
 [tool.pytest.ini_options]
@@ -117,4 +125,4 @@ omit = ["_tests/*"]
 
 [tool.coverage.report]
 show_missing = true
-fail_under = 0
+fail_under = 90

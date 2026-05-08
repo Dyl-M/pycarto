@@ -226,4 +226,4 @@ _drafts/
 CLAUDE.md
 
 # Natural Earth cache (populated by pycarto.data)
-data/
+_data/

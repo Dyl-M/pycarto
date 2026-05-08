@@ -23,8 +23,8 @@ The project was started as a side project to help fill out
 [Liquipedia's region maps category](https://liquipedia.net/commons/Category:Region_Maps), but the outputs are
 general-purpose — they work in any context where a clean SVG region map is needed.
 
-> **Status:** Pre-alpha — environment scaffolding (M0) is complete; the data, geometry, SVG, and border-suggester
-> modules are pending. See the [Roadmap](_docs/roadmap.md) for milestone progress.
+> **Status:** Pre-alpha — environment scaffolding (M0) and the data layer (M1) are complete; geometry, SVG,
+> orchestration, and border-suggester modules are pending. See the [Roadmap](_docs/roadmap.md) for milestone progress.
 
 ## Project Structure
 
