@@ -25,6 +25,7 @@ classifiers = [
 ]
 dependencies = [
     "geopandas>=1.0,<2",
+    "httpxyz>=0.31,<1",
     "pyogrio>=0.7",
 ]
 

@@ -10,7 +10,6 @@ Three pieces:
 
 # Standard library
 from collections.abc import Iterable
-from http.client import HTTPSConnection
 import io
 import logging
 from pathlib import Path
@@ -21,6 +20,7 @@ import zipfile
 # Third-party
 import geopandas as gpd
 from geopandas import GeoDataFrame
+import httpxyz
 
 # Natural Earth canonical distribution endpoint. Serves the latest published release (no version pin):
 # regenerated outputs may differ if Natural Earth ships a new vintage between runs.
@@ -66,16 +66,10 @@ def ensure_natural_earth(resolution: str = "50m") -> Path:
     msg = f"Downloading Natural Earth 1:50m countries to {cache_dir}…"
     warnings.warn(msg, UserWarning, stacklevel=2)
     logger.info(msg)
-    conn = HTTPSConnection(parsed.netloc, timeout=30)
-    try:
-        conn.request("GET", parsed.path)
-        resp = conn.getresponse()
-        if resp.status != 200:
-            raise RuntimeError(f"Failed to download {NE_50M_URL!r}: HTTP {resp.status} {resp.reason}")
-        zip_bytes = resp.read()
-    finally:
-        conn.close()
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+    response = httpxyz.get(NE_50M_URL, timeout=30.0, follow_redirects=True)
+    if response.status_code != 200:
+        raise RuntimeError(f"Failed to download {NE_50M_URL!r}: HTTP {response.status_code} {response.reason_phrase}")
+    with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
         zf.extractall(cache_dir)
     return shp_path
 

@@ -1,6 +1,7 @@
 """Tests for ``pycarto.data``."""
 
 # Standard library
+from collections.abc import Callable
 import io
 import logging
 from pathlib import Path
@@ -14,44 +15,24 @@ import pytest
 from pycarto.data import NE_50M_SHP_NAME, ensure_natural_earth, load_countries, select
 
 
-class _FakeHTTPResponse:
-    """Minimal stand-in for the response returned by ``HTTPSConnection.getresponse``."""
+class _FakeHttpxResponse:
+    """Minimal stand-in for the response returned by ``httpxyz.get``."""
 
-    def __init__(self, status: int, payload: bytes, reason: str = "OK") -> None:
-        """Record the canned status, reason, and payload that the response will surface."""
-        self.status = status
-        self.reason = reason
-        self._payload = payload
-
-    def read(self) -> bytes:
-        """Return the in-memory payload, mirroring ``HTTPResponse.read``."""
-        return self._payload
+    def __init__(self, status_code: int, content: bytes, reason: str = "OK") -> None:
+        """Record the canned status code, reason phrase, and body bytes."""
+        self.status_code = status_code
+        self.content = content
+        self.reason_phrase = reason
 
 
-def _build_fake_https_connection(response: _FakeHTTPResponse) -> type:
-    """Return an ``HTTPSConnection`` look-alike that hands out the supplied canned response."""
+def _fake_httpx_get_returning(response: _FakeHttpxResponse) -> Callable[..., _FakeHttpxResponse]:
+    """Return an ``httpxyz.get`` look-alike that always hands back the supplied canned response."""
 
-    class _FakeHTTPSConnection:
-        """Minimal stand-in for ``http.client.HTTPSConnection``."""
+    def _get(*_args: object, **_kwargs: object) -> _FakeHttpxResponse:
+        """Ignore the URL and kwargs the SUT passes; return the captured response."""
+        return response
 
-        def __init__(self, host: str, *, timeout: int | None = None) -> None:
-            """Record the host/timeout the SUT requested for later assertions."""
-            self.host = host
-            self.timeout = timeout
-
-        def request(self, method: str, path: str) -> None:
-            """Capture the GET path so tests can confirm the SUT issued the right call."""
-            self.method = method
-            self.path = path
-
-        def getresponse(self) -> _FakeHTTPResponse:
-            """Hand out the canned response."""
-            return response
-
-        def close(self) -> None:
-            """No-op: the fake holds no real resources."""
-
-    return _FakeHTTPSConnection
+    return _get
 
 
 @pytest.mark.parametrize("resolution", ["10m", "110m", "5m"])
@@ -72,14 +53,11 @@ def test_ensure_natural_earth_returns_cached_path(
     shp.touch()
     monkeypatch.chdir(tmp_path)
 
-    class _NoNetwork:
-        """Sentinel ``HTTPSConnection`` replacement that fails the test if instantiated."""
+    def _no_network(*_args: object, **_kwargs: object) -> None:
+        """Fail loudly if the SUT tries to open a connection."""
+        raise AssertionError("ensure_natural_earth should not connect when cache is populated")
 
-        def __init__(self, *_args: object, **_kwargs: object) -> None:
-            """Fail loudly if the SUT tries to open a connection."""
-            raise AssertionError("ensure_natural_earth should not connect when cache is populated")
-
-    monkeypatch.setattr("pycarto.data.HTTPSConnection", _NoNetwork)
+    monkeypatch.setattr("pycarto.data.httpxyz.get", _no_network)
 
     assert ensure_natural_earth() == shp
 
@@ -108,8 +86,8 @@ def test_ensure_natural_earth_downloads_and_extracts(
         zf.writestr(NE_50M_SHP_NAME, b"fake shapefile bytes")
     payload = buf.getvalue()
 
-    fake_response = _FakeHTTPResponse(status=200, payload=payload)
-    monkeypatch.setattr("pycarto.data.HTTPSConnection", _build_fake_https_connection(fake_response))
+    fake_response = _FakeHttpxResponse(status_code=200, content=payload)
+    monkeypatch.setattr("pycarto.data.httpxyz.get", _fake_httpx_get_returning(fake_response))
 
     with pytest.warns(UserWarning, match="Downloading Natural Earth"):
         result = ensure_natural_earth()
@@ -125,8 +103,8 @@ def test_ensure_natural_earth_raises_on_http_error(
     """A non-200 response surfaces as a ``RuntimeError`` so it doesn't corrupt the cache."""
     monkeypatch.chdir(tmp_path)
 
-    fake_response = _FakeHTTPResponse(status=404, payload=b"", reason="Not Found")
-    monkeypatch.setattr("pycarto.data.HTTPSConnection", _build_fake_https_connection(fake_response))
+    fake_response = _FakeHttpxResponse(status_code=404, content=b"", reason="Not Found")
+    monkeypatch.setattr("pycarto.data.httpxyz.get", _fake_httpx_get_returning(fake_response))
 
     # The download-attempt UserWarning fires before we know it'll fail; that's honest behaviour
     # (warning describes the attempt, error describes the failure), so just acknowledge it.
