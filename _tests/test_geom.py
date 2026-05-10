@@ -135,3 +135,6 @@ def test_simplify_topological_preserves_topology(adjacent_polygons: gpd.GeoDataF
     geom_a, geom_b = simplified.geometry.iloc[0], simplified.geometry.iloc[1]
     shared = geom_a.intersection(geom_b)
     assert shared.length > 0, "Adjacent countries lost their shared boundary after simplification"
+    # M3 forward-readiness: render_svg will sort by id_field after simplification, so non-geometry
+    # columns must survive the topojson round-trip.
+    assert "ISO_A3_EH" in simplified.columns, "Non-geometry columns dropped by topojson.to_gdf()"
