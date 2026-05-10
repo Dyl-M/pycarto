@@ -34,14 +34,17 @@ REGION_PROJECTIONS: Final[dict[str, str]] = {
 }
 
 
-def _main_polygon_bounds(geom: BaseGeometry) -> tuple[float, float, float, float]:
+def main_polygon_bounds(geom: BaseGeometry) -> tuple[float, float, float, float]:
     """Return the bbox of ``geom``'s dominant sub-polygon by area.
 
-    Used by :func:`auto_center_laea` to ignore Natural Earth's overseas-dependency aggregation: a ``MultiPolygon``
-    contributes only its largest part, not the union of all parts.
+    Used by :func:`auto_center_laea` and :func:`pycarto.svg.affine_world_to_svg` to ignore Natural Earth's
+    overseas-dependency aggregation when computing region-level bboxes: a ``MultiPolygon`` contributes only its
+    largest part, not the union of all parts. Without this, selections that include `NLD` / `FRA` / `USA` /
+    `GBR` would have their bboxes stretched across an ocean by Caribbean NL / French Guiana / Hawaii / etc.,
+    pushing projection centers into open water (M2.5) and deforming the SVG canvas aspect ratio (M3.5).
 
     Dispatch:
-        - ``Polygon`` → ``geom.bounds``.
+        - ``Polygon`` → ``geom.bounds`` (single-part input is its own dominant part).
         - ``MultiPolygon`` → bounds of ``max(geom.geoms, key=area)``. Python's stable :func:`max` returns the first
           equal-area sub-polygon by index, which the M2.5 tie-break test locks in.
         - Anything else (``GeometryCollection``, etc.) → defensive fall-back to ``geom.bounds``.
@@ -50,7 +53,7 @@ def _main_polygon_bounds(geom: BaseGeometry) -> tuple[float, float, float, float
         geom: A shapely geometry — typically a ``Polygon`` or ``MultiPolygon`` row from a ``GeoDataFrame``.
 
     Returns:
-        A ``(minx, miny, maxx, maxy)`` tuple.
+        A ``(minx, miny, maxx, maxy)`` tuple in the same units as ``geom`` (degrees for WGS84, meters for LAEA).
     """
     if isinstance(geom, MultiPolygon):
         return max(geom.geoms, key=lambda part: part.area).bounds
@@ -64,7 +67,7 @@ def auto_center_laea(gdf: GeoDataFrame) -> str:
     deterministic, free of geographic-CRS centroid warnings, and matches the round-number style of the
     :data:`REGION_PROJECTIONS` presets.
 
-    Each row contributes the bbox of its largest sub-polygon by area (via :func:`_main_polygon_bounds`), not its
+    Each row contributes the bbox of its largest sub-polygon by area (via :func:`main_polygon_bounds`), not its
     full geometry. This keeps overseas dependencies from dragging the auto-center across an ocean — Natural Earth
     aggregates Caribbean Netherlands into ``NLD``, French Guiana into ``FRA``, Hawaii / Alaska into ``USA``, and so
     on, and those tiny sub-polygons would otherwise stretch the bbox by tens of degrees. Ties between equal-area
@@ -86,7 +89,7 @@ def auto_center_laea(gdf: GeoDataFrame) -> str:
     """
     if gdf.crs is None or not gdf.crs.is_geographic:
         raise ValueError(f"auto_center_laea expects a geographic CRS (e.g. EPSG:4326); got crs={gdf.crs!r}")
-    bounds = [_main_polygon_bounds(g) for g in gdf.geometry if isinstance(g, BaseGeometry) and not g.is_empty]
+    bounds = [main_polygon_bounds(g) for g in gdf.geometry if isinstance(g, BaseGeometry) and not g.is_empty]
     if bounds:
         mins_x, mins_y, maxs_x, maxs_y = zip(*bounds, strict=True)
         minx, miny = float(min(mins_x)), float(min(mins_y))

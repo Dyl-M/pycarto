@@ -18,7 +18,8 @@
 | M1 — Data layer (`data.py`)           | Complete 2026-05-08 |
 | M2 — Geometry pipeline (`geom.py`)    | Complete 2026-05-08 |
 | M2.5 — Overseas-territories centering | Complete 2026-05-10 |
-| M3 — SVG emission (`svg.py`)          | Pending             |
+| M3 — SVG emission (`svg.py`)          | Complete 2026-05-10 |
+| M3.5 — Overseas-territories canvas    | Complete 2026-05-10 |
 | M4 — `build_map` orchestration        | Pending             |
 | M5 — Border suggester (`borders.py`)  | Pending             |
 | M6 — Polish                           | Pending             |
@@ -136,13 +137,74 @@ shapefile.
 bbox; the M2 topology-preservation gate stays green; `uv run ruff check . && uv run mypy pycarto && uv run
 pytest -m "not network"` all clean; coverage on `pycarto/geom.py` stays at 100%.
 
-### M3 — SVG emission (`svg.py`) (½ day)
+### M3 — SVG emission (`svg.py`) (½ day) — Complete (2026-05-10)
 
-- [ ] `geom_to_path(geom) -> str` — (Multi)Polygon → SVG `d` string
-- [ ] `affine_world_to_svg(gdf, *, width, padding) -> tuple[GeoDataFrame, viewbox, height]` — Y-flip + scale
-- [ ] `render_svg(gdf, *, id_field, id_lower, width, padding) -> str` — sorts by id, builds the full SVG document
+- [x] `geom_to_path(geom) -> str` — (Multi)Polygon → SVG `d` string. Returns `""` for `None`, empty geometry, or
+  non-(Multi)Polygon input (silently dropped by `render_svg`). Coordinates round to 1 decimal place — 0.1 px at the
+  default 1000 px width, ~3-4× smaller than full float repr.
+- [x] `affine_world_to_svg(gdf, *, width=1000, padding=10) -> tuple[GeoDataFrame, tuple[int, int, int, int], int]` —
+  isotropic Y-flip + scale via `shapely.affinity.affine_transform`. Returns a defensive copy (mirroring
+  `simplify_topological`), the SVG viewbox `(0, 0, width, height)`, and `height` separately. CRS is not validated —
+  caller is expected to feed projected data from `geom.reproject`.
+- [x] `render_svg(gdf, *, id_field="ISO_A2_EH", id_lower=True, width=1000, padding=10) -> str` — `affine_world_to_svg`
+  → sort by post-lowercase id (stable diffs) → emit one `<path>` per surviving row → wrap in an `<svg>` document with
+  a hardcoded default `<style>` (style theming is OOS per "Final scope decisions") and a `<g id="countries">` group.
+  Drops rows whose id is in `{"", "-99", "nan"}` after stripping (NE uses `-99` for un-coded territories) or whose
+  geometry produces an empty `d`. Uses `xml.sax.saxutils.escape` (stdlib) on the id.
+- [x] No new runtime deps — reuses `shapely.affinity.affine_transform` (already pulled by M2.5) and stdlib
+  `xml.sax.saxutils`.
+- [x] `_tests/conftest.py` adds a `benelux_projected` fixture (BEL/NLD/LUX subset of `fake_world`, reprojected to
+  `REGION_PROJECTIONS["europe"]`). Synthetic-only per "Status" / M1 philosophy — real-shapefile coverage deferred
+  to a `network`-marked test in M6.
 
-**Gate:** golden snapshot test passes for Benelux at 1:110m.
+**Gate:** ✔ `test_render_svg_benelux_golden_snapshot` (`_tests/test_svg.py`) — Benelux selection round-trips through
+`select → reproject → render_svg` to a stable SVG snapshot at
+`_tests/test_svg/test_render_svg_benelux_golden_snapshot.svg`. Plus 20 unit tests covering each function's contract
+(ring walking, Y-flip, padding, id sorting, sentinel/empty-geom skipping, XML escaping, document shape).
+
+### M3.5 — Overseas-territories canvas-bounds fix (~¼ day) — Complete (2026-05-10)
+
+`affine_world_to_svg` shipped with M3 still derived its canvas bbox from `gdf.total_bounds`, so for any
+selection containing `NLD` / `FRA` / `USA` / `GBR` (countries whose Natural Earth `admin_0_countries`
+geometry aggregates overseas dependencies), the bbox stretched across an ocean and the canvas aspect ratio
+deformed badly. The first manual end-to-end run on real NE 1:50m (Benelux + `auto_center_laea`) produced
+**viewBox `0 0 1000 146`** (~7:1 horizontal stretch) instead of the expected **`0 0 1000 1384`** —
+Caribbean Netherlands projecting far west of metropolitan NL pulled the bbox sideways. **Strategy: mirror
+M2.5 for the affine pass — aggregate per-row largest-sub-polygon bbox via the now-public
+`main_polygon_bounds` helper instead of `gdf.total_bounds`.** Bounds-only fix; off-canvas overseas `<path>`
+data stays in the SVG (renderers clip to viewBox), opt-in dropping deferred to M5/M6.
+
+- [x] Promote `pycarto.geom._main_polygon_bounds` → public `main_polygon_bounds`. Update its docstring to
+  describe its general purpose (used by `auto_center_laea` and `affine_world_to_svg`). Update the call site
+  in `auto_center_laea`. No test rename — the helper is referenced indirectly via the M2.5 tests.
+- [x] Rework `affine_world_to_svg` in `pycarto/svg.py` to aggregate per-row `main_polygon_bounds` instead
+  of `gdf.total_bounds`, mirroring `auto_center_laea`'s pattern verbatim. Strengthen the existing
+  degenerate-bbox guard from `if map_w == 0 or map_h == 0` to `if not (map_w > 0 and map_h > 0)` — same
+  test coverage of zero/zero, plus catches NaN (all-empty frames) and negatives. Add a new `# Local`
+  import section to `svg.py` for `from pycarto.geom import main_polygon_bounds`; this is the first
+  cross-module dependency in pycarto, one-way (svg → geom).
+- [x] Refresh the `affine_world_to_svg` docstring to describe the new bounds semantics, reference M3.5,
+  and acknowledge the off-canvas-`<path>`-data trade-off.
+- [x] Add `test_affine_world_to_svg_ignores_overseas_dependencies` to `_tests/test_svg.py` reusing the
+  existing `country_with_overseas` fixture (no new fixture; CRS unvalidated, math unit-agnostic). Asserts
+  `height == 608` (metropolitan-only bounds) instead of 529 (metropolitan + Caribbean span).
+- [x] Add `test_affine_world_to_svg_rejects_all_empty_geometry_frame` to cover the new fallback branch
+  (all-empty `Polygon()` rows → NaN bounds → ValueError via the strengthened guard).
+- [x] Verify all M3 tests pass without modification — including the synthetic Benelux golden snapshot
+  (`fake_world` has no MultiPolygons, so `main_polygon_bounds(Polygon) = Polygon.bounds` exactly and the
+  per-row aggregation yields the same result as `gdf.total_bounds` for all-Polygon frames).
+- [x] Drop the workaround `filter_overseas` helper from `_drafts/render_benelux.py` and re-run as
+  end-to-end smoke verification. Output viewBox should now be `0 0 1000 ~1384` (correct Benelux aspect
+  ratio) without the manual filter.
+- [x] Update the "Risks / gotchas" overseas-territories entry below to note that the bounds half is now
+  also fixed; only the off-canvas `<path>` data remains as a documented trade-off pending an opt-in
+  `drop_overseas` helper.
+- [x] Bump the M3.5 status row to `Complete <date>` and tick all checkboxes once the gate is green.
+
+**Gate:** ✔ `test_affine_world_to_svg_ignores_overseas_dependencies` — projected canvas height for the
+overseas fixture is 608 (metropolitan-only) not 529 (metropolitan + Caribbean span). The M3 Benelux
+golden snapshot stays bit-identical. `uv run ruff check . && uv run mypy pycarto && uv run pytest -m "not
+network"` all clean; coverage on `pycarto/geom.py` and `pycarto/svg.py` stays at 100%.
 
 ### M4 — `build_map` orchestration (`__init__.py`) (¼ day)
 
@@ -220,12 +282,17 @@ entirely.
   `touches()`.
 - **Russia / antimeridian**: not in scope for v1, but flag in `geom.py` to warn if selection bbox spans > 180°
   longitude — projection will distort badly. Implemented in `auto_center_laea` (dual `UserWarning` + logger).
-- **Overseas territories** — **Resolved in M2.5**: Natural Earth's `admin_0_countries` aggregates dependencies
-  into the parent country polygon (Caribbean NL inside `NLD`, French Guiana inside `FRA`, Hawaii/Alaska inside
-  `USA`), so selections that include those countries used to get a bbox spanning oceans and `auto_center_laea`
-  returned a center in open water. M2.5 fixed this by aggregating each row's largest sub-polygon bbox by area
-  (private `_main_polygon_bounds` helper) instead of `gdf.total_bounds`; tiny overseas sub-polygons no longer
-  contribute. Full subunit-level splitting (separate `<path>` per dependency) stays post-v1.
+- **Overseas territories** — **Resolved in M2.5 + M3.5**: Natural Earth's `admin_0_countries` aggregates
+  dependencies into the parent country polygon (Caribbean NL inside `NLD`, French Guiana inside `FRA`,
+  Hawaii/Alaska inside `USA`). Selections that include those countries used to get a bbox spanning oceans —
+  `auto_center_laea` returned a center in open water (M2.5), and `affine_world_to_svg` deformed the canvas
+  aspect ratio (M3.5). Both pieces now aggregate per-row largest-sub-polygon bbox via the public
+  `main_polygon_bounds` helper (promoted from private in M3.5) instead of `gdf.total_bounds`; tiny overseas
+  sub-polygons no longer contribute to either the projection center or the canvas scale. Off-canvas
+  `<path d>` data for those overseas parts still emits into the SVG (renderers clip to viewBox), so the
+  output file is ~30% larger for selections including NLD / FRA / USA / GBR; an opt-in `drop_overseas`
+  helper that strips them entirely is deferred to M5/M6. Full subunit-level splitting (separate `<path>`
+  per dependency) stays post-v1.
 - **Singapore / GUF / small islands**: present in 1:50m, drop out at 1:110m. Tests at 1:110m must avoid them or use
   larger countries.
 - **`_data/` cache vs reproducibility**: M1 downloads from `naciscdn.org` (rolling-latest); URL-based pinning is not

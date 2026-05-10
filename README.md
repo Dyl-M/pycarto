@@ -24,9 +24,10 @@ The project was started as a side project to help fill out
 [Liquipedia's region maps category](https://liquipedia.net/commons/Category:Region_Maps), but the outputs are
 general-purpose — they work in any context where a clean SVG region map is needed.
 
-> **Status:** Pre-alpha — environment scaffolding (M0), the data layer (M1), the geometry pipeline (M2), and the
-> overseas-territories centering fix (M2.5) are complete; SVG emission, orchestration, and the border-suggester
-> module are pending. See the [Roadmap](_docs/roadmap.md) for milestone progress.
+> **Status:** Pre-alpha — environment scaffolding (M0), the data layer (M1), the geometry pipeline (M2 + M2.5
+> overseas-territories centering fix), and SVG emission (M3 + M3.5 overseas-territories canvas-bounds fix) are
+> complete; `build_map` orchestration and the border-suggester module are pending. See the
+> [Roadmap](_docs/roadmap.md) for milestone progress.
 
 ## Project Structure
 
@@ -34,15 +35,17 @@ general-purpose — they work in any context where a clean SVG region map is nee
 pycarto/
 ├── __init__.py    # public API: build_map, suggest_neighbors, REGION_PROJECTIONS (populated in M4)
 ├── data.py        # Natural Earth fetch, cache, column normalization (M1)
-├── geom.py        # projection presets, reprojection, topological simplification (M2)
+├── geom.py        # projection presets, reprojection, topological simplification (M2 + M2.5)
 ├── borders.py     # adjacency graph + neighbor suggester (M5)
-├── svg.py         # affine world→SVG, path emission, viewBox/style assembly (M3)
+├── svg.py         # affine world→SVG, path emission, viewBox/style assembly (M3 + M3.5)
 └── py.typed       # PEP 561 typed-library marker
 ```
 
 ## Quick Start (planned API)
 
-> Not implemented yet — the snippet below reflects the planned public surface once milestones M1–M5 land.
+> Not implemented yet — the snippet below reflects the planned public surface once milestones M4 (`build_map`
+> orchestration) and M5 (border suggester) land. The underlying building blocks (`pycarto.data`, `pycarto.geom`,
+> `pycarto.svg`) are usable today.
 
 ```python
 from pycarto import REGION_PROJECTIONS, build_map, suggest_neighbors

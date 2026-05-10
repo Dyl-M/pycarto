@@ -5,6 +5,10 @@ import geopandas as gpd
 import pytest
 from shapely.geometry import MultiPolygon, Polygon, box
 
+# Local
+from pycarto.data import select
+from pycarto.geom import REGION_PROJECTIONS, reproject
+
 
 @pytest.fixture
 def fake_world() -> gpd.GeoDataFrame:
@@ -64,6 +68,31 @@ def overseas_tied_areas() -> gpd.GeoDataFrame:
         {"ISO_A3_EH": ["TIE"], "geometry": [MultiPolygon([first, second])]},
         crs="EPSG:4326",
     )
+
+
+@pytest.fixture
+def projected_square() -> gpd.GeoDataFrame:
+    """One-row gdf with a 100x100 square in a generic projected CRS — for ``affine_world_to_svg`` mechanics tests.
+
+    The CRS is set so the frame looks like real input from :func:`pycarto.geom.reproject`; ``affine_world_to_svg``
+    doesn't validate it. The 100x100 square makes hand-derivable scale math easy: at ``width=1000, padding=10``,
+    ``scale = 980 / 100 = 9.8`` so the canvas comes out 1000x1000 with 10 px insets on every side.
+    """
+    return gpd.GeoDataFrame(
+        {"ISO_A2_EH": ["AA"], "geometry": [box(0, 0, 100, 100)]},
+        crs="EPSG:3857",
+    )
+
+
+@pytest.fixture
+def benelux_projected(fake_world: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """BEL/NLD/LUX subset of ``fake_world`` reprojected to LAEA Europe.
+
+    Mirrors the M3 gate (Benelux selection). Built on synthetic boxes from ``fake_world`` rather than real Natural
+    Earth geometry so the SVG snapshot stays deterministic and the test runs without network — real-shapefile
+    coverage is deferred to the M6 ``network``-marked end-to-end test.
+    """
+    return reproject(select(fake_world, ["BEL", "NLD", "LUX"]), REGION_PROJECTIONS["europe"])
 
 
 @pytest.fixture
