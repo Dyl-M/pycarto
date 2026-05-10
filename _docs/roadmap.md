@@ -20,7 +20,7 @@
 | M2.5 — Overseas-territories centering | Complete 2026-05-10 |
 | M3 — SVG emission (`svg.py`)          | Complete 2026-05-10 |
 | M3.5 — Overseas-territories canvas    | Complete 2026-05-10 |
-| M4 — `build_map` orchestration        | Pending             |
+| M4 — `build_map` orchestration        | Complete 2026-05-10 |
 | M5 — Border suggester (`borders.py`)  | Pending             |
 | M6 — Polish                           | Pending             |
 
@@ -28,26 +28,30 @@
 
 ```
 pycarto/
-  __init__.py     # public API: build_map, suggest_neighbors, REGION_PROJECTIONS
+  __init__.py     # build_map orchestration + public API: build_map, suggest_neighbors,
+                  #   REGION_PROJECTIONS, Suggestion
   py.typed        # PEP 561 typed-library marker
   data.py         # Natural Earth fetch + cache + column normalization
   geom.py         # projection presets, reprojection, topological simplification
-  borders.py      # adjacency graph, enclave detection, shared-border scoring
+  borders.py      # Suggestion + suggest_neighbors (M4 forward-decl, M5 fills the body)
   svg.py          # affine world→SVG, path emission, viewBox/style assembly
 _tests/
   __init__.py
   conftest.py              # synthetic GeoDataFrame fixtures
-  test_init.py             # smoke tests on package metadata
+  test_init.py             # package metadata + public-API surface
   test_data.py
   test_geom.py
   test_borders.py
   test_svg.py
   test_build_map.py        # end-to-end on a small region (Benelux)
-  fixtures/
-    benelux_expected.svg   # golden snapshot
+  test_svg/                # pytest-regressions data dir (per-test-file convention)
+    test_render_svg_benelux_golden_snapshot.svg
 ```
 
 No `pycarto/main.py` entrypoint stub — lib-only means the package has no top-level script.
+
+`_data/` (Natural Earth cache) and `_img/` (default `build_map` output folder) are populated at runtime under
+`Path.cwd()`. Both are gitignored.
 
 ## Milestones
 
@@ -206,14 +210,36 @@ overseas fixture is 608 (metropolitan-only) not 529 (metropolitan + Caribbean sp
 golden snapshot stays bit-identical. `uv run ruff check . && uv run mypy pycarto && uv run pytest -m "not
 network"` all clean; coverage on `pycarto/geom.py` and `pycarto/svg.py` stays at 100%.
 
-### M4 — `build_map` orchestration (`__init__.py`) (¼ day)
+### M4 — `build_map` orchestration (`__init__.py`) (¼ day) — Complete (2026-05-10)
 
-- [ ] Compose `data → geom → svg`. Same signature as the intro-doc draft, minus what we promote to defaults.
-- [ ] Add `suggest_only: bool = False` and `suggestions: list[str] | None = None` (forward-declared here; M5 wires the
-  body).
-- [ ] Public API: `from pycarto import build_map, suggest_neighbors, REGION_PROJECTIONS`.
+- [x] Compose `data → geom → svg` in `pycarto/__init__.py`. Signature matches the intro-doc draft minus what was
+  already promoted to defaults in M1–M3 (`filter_field`, `id_field`, `id_lower`, `width`, `padding`,
+  `simplify_tolerance=4_000.0`).
+- [x] `projection: str | None = None` — `None` derives a LAEA via :func:`pycarto.geom.auto_center_laea` from the
+  selection's WGS84 bbox (idiomatic for regional maps; reuses the M2.5 helper). Selections spanning the
+  antimeridian still surface the M2 `UserWarning` from `auto_center_laea`.
+- [x] `suggest_only: bool = False` and `suggestions: Iterable[str] | None = None`. `suggestions` extends
+  `iso_codes` (curate-and-rebuild flow) — caller runs `suggest_neighbors`, reviews, passes accepted codes back.
+  Codes are upper-cased + de-duped before `data.select`.
+- [x] Forward-declare the M5 public surface: `pycarto/borders.py` ships a frozen `Suggestion` dataclass (schema
+  locked per the roadmap §M5 spec) and a `suggest_neighbors` stub that raises `NotImplementedError("lands in
+  M5")`. `build_map(..., suggest_only=True)` short-circuits before any I/O and delegates to that stub. M5 just
+  fills the body — no signature churn.
+- [x] Public API: `from pycarto import REGION_PROJECTIONS, Suggestion, build_map, suggest_neighbors`. `__all__`
+  rebuilt with comment-grouped Metadata / Public API sections.
+- [x] Default SVG output folder: a bare filename (no directory component) is resolved under
+  `Path.cwd() / "_img"` — mirrors `pycarto.data.ensure_natural_earth`'s `_data/` cache resolution. Missing
+  parent directories are created with `mkdir(parents=True, exist_ok=True)`. `_img/` is gitignored alongside
+  `_data/`. Explicit directories or absolute paths bypass the default and are still honored verbatim.
+- [x] Tests are synthetic-only (`_tests/test_build_map.py` writes `fake_world` to a temp shapefile via `tmp_path`
+  and passes it as `shp_path`) — mirrors M3's pattern. Real-NE SE Asia / South America counts stay deferred to
+  M6's `network`-marked end-to-end test.
 
-**Gate:** end-to-end test reproduces the intro-doc SE Asia / South America outputs (10 + 12 paths).
+**Gate:** ✔ Synthetic Benelux end-to-end (`select → auto_center_laea → reproject → simplify_topological →
+render_svg`) writes a 3-path SVG with stable lowercase ids `be` / `lu` / `nl`. `suggest_only=True` raises
+`NotImplementedError` without touching the filesystem. `uv run ruff check . && uv run ruff format --check . &&
+uv run mypy pycarto && uv run pytest -m "not network"` all clean; coverage stays at 100%. Real-NE SE Asia / South
+America (intro-doc) deferred to the M6 `network`-marked test.
 
 ### M5 — Border suggester (`borders.py`) — the new feature (1–1½ days)
 

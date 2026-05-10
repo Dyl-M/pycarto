@@ -227,3 +227,6 @@ CLAUDE.md
 
 # Natural Earth cache (populated by pycarto.data)
 _data/
+
+# SVG output cache (default `build_map` destination when only a bare filename is given)
+_img/

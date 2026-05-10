@@ -25,15 +25,15 @@ The project was started as a side project to help fill out
 general-purpose — they work in any context where a clean SVG region map is needed.
 
 > **Status:** Pre-alpha — environment scaffolding (M0), the data layer (M1), the geometry pipeline (M2 + M2.5
-> overseas-territories centering fix), and SVG emission (M3 + M3.5 overseas-territories canvas-bounds fix) are
-> complete; `build_map` orchestration and the border-suggester module are pending. See the
-> [Roadmap](_docs/roadmap.md) for milestone progress.
+> overseas-territories centering fix), SVG emission (M3 + M3.5 overseas-territories canvas-bounds fix), and
+> `build_map` orchestration (M4) are complete; the border-suggester module (M5) and polish (M6) are pending.
+> See the [Roadmap](_docs/roadmap.md) for milestone progress.
 
 ## Project Structure
 
 ```
 pycarto/
-├── __init__.py    # public API: build_map, suggest_neighbors, REGION_PROJECTIONS (populated in M4)
+├── __init__.py    # public API: build_map, suggest_neighbors, REGION_PROJECTIONS, Suggestion (M4)
 ├── data.py        # Natural Earth fetch, cache, column normalization (M1)
 ├── geom.py        # projection presets, reprojection, topological simplification (M2 + M2.5)
 ├── borders.py     # adjacency graph + neighbor suggester (M5)
@@ -41,16 +41,13 @@ pycarto/
 └── py.typed       # PEP 561 typed-library marker
 ```
 
-## Quick Start (planned API)
-
-> Not implemented yet — the snippet below reflects the planned public surface once milestones M4 (`build_map`
-> orchestration) and M5 (border suggester) land. The underlying building blocks (`pycarto.data`, `pycarto.geom`,
-> `pycarto.svg`) are usable today.
+## Quick Start
 
 ```python
 from pycarto import REGION_PROJECTIONS, build_map, suggest_neighbors
 
-# Generate a map directly from a list of ISO alpha-3 codes
+# Generate a map directly from a list of ISO alpha-3 codes.
+# A bare filename lands in `./_img/` (gitignored); pass an explicit directory or absolute path to override.
 build_map(
     iso_codes=["BRN", "KHM", "IDN", "LAO", "MYS", "MMR", "PHL", "SGP", "THA", "TLS", "VNM"],
     output_path="Map_of_Southeast_Asia.svg",
@@ -73,6 +70,10 @@ suggestions = build_map(
     suggest_only=True,
 )
 ```
+
+> **M5 caveat:** `suggest_neighbors` (and `build_map(..., suggest_only=True)`) currently raise
+> `NotImplementedError` — the signatures are locked in M4 but the bodies land in M5. Plain `build_map(...)` calls
+> work today.
 
 ## Development
 
