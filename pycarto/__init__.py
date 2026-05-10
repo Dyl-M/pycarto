@@ -7,7 +7,8 @@ from pathlib import Path
 # Local
 from pycarto.borders import Suggestion, suggest_neighbors
 from pycarto.data import load_countries, select
-from pycarto.geom import REGION_PROJECTIONS, auto_center_laea, reproject, simplify_topological
+from pycarto.geom import REGION_PROJECTIONS as REGION_PROJECTIONS
+from pycarto.geom import auto_center_laea, reproject, simplify_topological
 from pycarto.svg import render_svg
 
 __version__ = "0.0.0"
