@@ -12,17 +12,17 @@
 
 ## Status
 
-| Milestone                             | Status              |
-|---------------------------------------|---------------------|
-| M0 — Project plumbing                 | Complete 2026-05-07 |
-| M1 — Data layer (`data.py`)           | Complete 2026-05-08 |
-| M2 — Geometry pipeline (`geom.py`)    | Complete 2026-05-08 |
-| M2.5 — Overseas-territories centering | Complete 2026-05-10 |
-| M3 — SVG emission (`svg.py`)          | Complete 2026-05-10 |
-| M3.5 — Overseas-territories canvas    | Complete 2026-05-10 |
-| M4 — `build_map` orchestration        | Complete 2026-05-10 |
-| M5 — Border suggester (`borders.py`)  | Pending             |
-| M6 — Polish                           | Pending             |
+| Milestone                                  | Status              |
+|--------------------------------------------|---------------------|
+| M0 — Project plumbing                      | Complete 2026-05-07 |
+| M1 — Data layer (`data.py`)                | Complete 2026-05-08 |
+| M2 — Geometry pipeline (`geom.py`)         | Complete 2026-05-08 |
+| M2.5 — Overseas-territories centering      | Complete 2026-05-10 |
+| M3 — SVG emission (`svg.py`)               | Complete 2026-05-10 |
+| M3.5 — Overseas-territories canvas         | Complete 2026-05-10 |
+| M4 — `build_map` orchestration             | Complete 2026-05-10 |
+| M5 — Border suggester + region unification | Pending             |
+| M6 — Polish                                | Pending             |
 
 ## Target package structure
 
@@ -241,9 +241,11 @@ render_svg`) writes a 3-path SVG with stable lowercase ids `be` / `lu` / `nl`. `
 uv run mypy pycarto && uv run pytest -m "not network"` all clean; coverage stays at 100%. Real-NE SE Asia / South
 America (intro-doc) deferred to the M6 `network`-marked test.
 
-### M5 — Border suggester (`borders.py`) — the new feature (1–1½ days)
+### M5 — Border suggester + region unification (1½–2 days)
 
-This is the only piece without a draft. Two building blocks:
+The suggester (`borders.py`) is the only piece without a draft. Region unification is an additive SVG-rendering
+deliverable that lands in the same milestone because it's the second half of "make regional maps look clean" alongside
+the suggester. Two building blocks for the suggester:
 
 **Adjacency graph**
 
@@ -284,14 +286,35 @@ def suggest_neighbors(
 **Wire `suggest_only=True` in `build_map`**: when set, returns the `list[Suggestion]` and skips geom + svg work
 entirely.
 
+**Region unification** (dissolve + outline overlay — opt-in, orthogonal to the suggester):
+
+- [ ] New `unify_region: bool = False` kwarg on `build_map`. When `True`, dissolve the projected+simplified frame into
+  a single polygon (shapely union over the geometry column) and pass it to `render_svg` as an outline layer. Default
+  `False` keeps M3 / M4 output bit-for-bit unchanged.
+- [ ] New `region_outline: BaseGeometry | None = None` kwarg on `svg.render_svg`. When set, emit one extra
+  `<path id="region">` *after* the country `<g id="countries">` group so it overlays — per-country `<path id>` ids
+  stay intact underneath for downstream theming. Reuse `geom_to_path` for the `d` string.
+- [ ] Extend `_DEFAULT_STYLE` with a `#region { fill: none; stroke: #555; stroke-width: 0.6; stroke-linejoin: round;
+  vector-effect: non-scaling-stroke; }` rule, and drop the per-country `stroke` (or set it to `none`) when a region
+  outline is present so only the unified outer border is drawn. With no outline, default styling matches M3 verbatim.
+- [ ] Run the union on the **projected+simplified** frame (not raw NE — that's the adjacency graph's job above).
+  Aligns the outline visually with the country paths underneath; no half-pixel drift between the dissolve and the
+  per-country edges.
+- [ ] Document interaction with `suggest_only=True`: when both are set, `suggest_only` wins and short-circuits before
+  any geometry / svg work — `unify_region` is a no-op in that path.
+
 **Tests** (fixture-based, deterministic):
 
 - [ ] `["FRA","DEU","ITA","AUT"]` → Suggestion for `CHE` with reason="enclave"
 - [ ] `["UKR","POL","LTU","LVA","RUS"]` → Suggestion for `BLR` with reason="shared_border", score > 0.7
 - [ ] `["BEL","NLD"]` → no enclave (LUX isn't enclosed by 2 countries), but LUX appears as `shared_border` if threshold
   lowered
+- [ ] Synthetic Benelux `unify_region=True` → SVG contains exactly one `<path id="region"` with a non-empty `d`;
+  per-country paths `be` / `lu` / `nl` still emit underneath; the existing M3 golden snapshot for
+  `unify_region=False` (default) keeps passing unchanged.
 
-**Gate:** the three fixture cases above pass.
+**Gate:** the three suggester fixture cases above pass; `unify_region=True` snapshot passes; `unify_region=False`
+output is bit-for-bit identical to the existing M3 golden snapshot.
 
 ### M6 — Polish (¼ day)
 
