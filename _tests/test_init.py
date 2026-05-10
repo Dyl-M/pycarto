@@ -5,7 +5,7 @@ import re
 
 # Local
 import pycarto
-from pycarto import REGION_PROJECTIONS, Suggestion, __author__, __version__, build_map, suggest_neighbors
+from pycarto import Suggestion, __author__, __version__, build_map, suggest_neighbors
 
 
 def test_version_is_string() -> None:
@@ -27,16 +27,14 @@ def test_public_api_exports() -> None:
     """``from pycarto import ...`` exposes the M4 public surface."""
     assert callable(build_map)
     assert callable(suggest_neighbors)
-    assert isinstance(REGION_PROJECTIONS, dict)
     assert Suggestion.__name__ == "Suggestion"
 
 
 def test_dunder_all_lists_public_api() -> None:
-    """``__all__`` covers metadata + the four public-API symbols."""
+    """``__all__`` covers metadata + the three public-API symbols."""
     assert set(pycarto.__all__) == {
         "__author__",
         "__version__",
-        "REGION_PROJECTIONS",
         "Suggestion",
         "build_map",
         "suggest_neighbors",

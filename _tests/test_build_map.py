@@ -8,7 +8,8 @@ import geopandas as gpd
 import pytest
 
 # Local
-from pycarto import REGION_PROJECTIONS, build_map
+from pycarto import build_map
+from pycarto.geom import REGION_PROJECTIONS
 
 
 @pytest.fixture

@@ -28,8 +28,7 @@
 
 ```
 pycarto/
-  __init__.py     # build_map orchestration + public API: build_map, suggest_neighbors,
-                  #   REGION_PROJECTIONS, Suggestion
+  __init__.py     # build_map orchestration + public API: build_map, suggest_neighbors, Suggestion
   py.typed        # PEP 561 typed-library marker
   data.py         # Natural Earth fetch + cache + column normalization
   geom.py         # projection presets, reprojection, topological simplification
@@ -225,8 +224,9 @@ network"` all clean; coverage on `pycarto/geom.py` and `pycarto/svg.py` stays at
   locked per the roadmap §M5 spec) and a `suggest_neighbors` stub that raises `NotImplementedError("lands in
   M5")`. `build_map(..., suggest_only=True)` short-circuits before any I/O and delegates to that stub. M5 just
   fills the body — no signature churn.
-- [x] Public API: `from pycarto import REGION_PROJECTIONS, Suggestion, build_map, suggest_neighbors`. `__all__`
-  rebuilt with comment-grouped Metadata / Public API sections.
+- [x] Public API: `from pycarto import Suggestion, build_map, suggest_neighbors`. `REGION_PROJECTIONS` stays in
+  `pycarto.geom` (canonical home) — `from pycarto.geom import REGION_PROJECTIONS` is the documented import path.
+  `__all__` rebuilt with comment-grouped Metadata / Public API sections.
 - [x] Default SVG output folder: a bare filename (no directory component) is resolved under
   `Path.cwd() / "_img"` — mirrors `pycarto.data.ensure_natural_earth`'s `_data/` cache resolution. Missing
   parent directories are created with `mkdir(parents=True, exist_ok=True)`. `_img/` is gitignored alongside

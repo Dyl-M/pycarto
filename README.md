@@ -33,7 +33,7 @@ general-purpose — they work in any context where a clean SVG region map is nee
 
 ```
 pycarto/
-├── __init__.py    # public API: build_map, suggest_neighbors, REGION_PROJECTIONS, Suggestion (M4)
+├── __init__.py    # public API: build_map, suggest_neighbors, Suggestion (M4)
 ├── data.py        # Natural Earth fetch, cache, column normalization (M1)
 ├── geom.py        # projection presets, reprojection, topological simplification (M2 + M2.5)
 ├── borders.py     # adjacency graph + neighbor suggester (M5)
@@ -44,7 +44,8 @@ pycarto/
 ## Quick Start
 
 ```python
-from pycarto import REGION_PROJECTIONS, build_map, suggest_neighbors
+from pycarto import build_map, suggest_neighbors
+from pycarto.geom import REGION_PROJECTIONS
 
 # Generate a map directly from a list of ISO alpha-3 codes.
 # A bare filename lands in `./_img/` (gitignored); pass an explicit directory or absolute path to override.

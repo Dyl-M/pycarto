@@ -7,7 +7,6 @@ from pathlib import Path
 # Local
 from pycarto.borders import Suggestion, suggest_neighbors
 from pycarto.data import load_countries, select
-from pycarto.geom import REGION_PROJECTIONS as REGION_PROJECTIONS
 from pycarto.geom import auto_center_laea, reproject, simplify_topological
 from pycarto.svg import render_svg
 
@@ -19,7 +18,6 @@ __all__: list[str] = [
     "__author__",
     "__version__",
     # Public API
-    "REGION_PROJECTIONS",
     "Suggestion",
     "build_map",
     "suggest_neighbors",
@@ -63,7 +61,7 @@ def build_map(
             ``Path.cwd() / "_img"`` — mirrors the ``_data/`` cache pattern in :mod:`pycarto.data`. Pass an
             explicit directory (``"out/foo.svg"``) or an absolute path to bypass the default folder. Parent
             directories are created if missing. Ignored when ``suggest_only=True``.
-        projection: PROJ string (e.g. a :data:`pycarto.REGION_PROJECTIONS` preset). ``None`` → derive via
+        projection: PROJ string (e.g. a :data:`pycarto.geom.REGION_PROJECTIONS` preset). ``None`` → derive via
             :func:`pycarto.geom.auto_center_laea` from the selection's WGS84 bbox. Selections spanning the
             antimeridian (>180° longitude) will surface the M2 :class:`UserWarning` from ``auto_center_laea``.
         simplify_tolerance: ``topojson.toposimplify`` tolerance in projection units (meters for LAEA). ``<= 0``
