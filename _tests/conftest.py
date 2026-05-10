@@ -3,7 +3,7 @@
 # Third-party
 import geopandas as gpd
 import pytest
-from shapely.geometry import box
+from shapely.geometry import Polygon, box
 
 
 @pytest.fixture
@@ -37,3 +37,19 @@ def lowercase_columns_world(fake_world: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """Same shape as ``fake_world`` but every non-geometry column is lower-cased."""
     geom_col = fake_world.geometry.name
     return fake_world.rename(columns={c: c.lower() for c in fake_world.columns if c != geom_col})
+
+
+@pytest.fixture
+def adjacent_polygons() -> gpd.GeoDataFrame:
+    """Two adjacent polygons sharing a wiggly edge — *not* a straight line.
+
+    The intermediate vertices on the shared boundary deviate slightly from x=5 (alternating ±0.05) so that
+    Douglas-Peucker has real work to do: with collinear vertices, perpendicular distance is zero and the
+    simplifier is a no-op, which would make the M2 topology-preservation gate vacuous.
+    """
+    left = Polygon([(0, 0), (5, 0), (5.05, 1.2), (4.95, 2.5), (5.05, 3.7), (5, 5), (0, 5)])
+    right = Polygon([(5, 0), (10, 0), (10, 5), (5, 5), (5.05, 3.7), (4.95, 2.5), (5.05, 1.2)])
+    return gpd.GeoDataFrame(
+        {"ISO_A3_EH": ["AAA", "BBB"], "geometry": [left, right]},
+        crs="EPSG:4326",
+    )

@@ -16,16 +16,17 @@
 countries (full enclaves and high shared-border ratio neighbors) for visually cleaner regional maps.
 
 Built on [`geopandas`](https://geopandas.org/) (with [`pyogrio`](https://pyogrio.readthedocs.io/) +
-[`httpxyz`](https://codeberg.org/httpxyz/httpxyz) for I/O); [`topojson`](https://github.com/mattijn/topojson) lands
-with M2 and [`shapely`](https://shapely.readthedocs.io/) with M3. Source geometry is
+[`httpxyz`](https://codeberg.org/httpxyz/httpxyz) for I/O) and [`topojson`](https://github.com/mattijn/topojson) for
+topology-preserving simplification; [`shapely`](https://shapely.readthedocs.io/) lands with M3. Source geometry is
 [Natural Earth](https://www.naturalearthdata.com/) 1:50m (public domain).
 
 The project was started as a side project to help fill out
 [Liquipedia's region maps category](https://liquipedia.net/commons/Category:Region_Maps), but the outputs are
 general-purpose — they work in any context where a clean SVG region map is needed.
 
-> **Status:** Pre-alpha — environment scaffolding (M0) and the data layer (M1) are complete; geometry, SVG,
-> orchestration, and border-suggester modules are pending. See the [Roadmap](_docs/roadmap.md) for milestone progress.
+> **Status:** Pre-alpha — environment scaffolding (M0), the data layer (M1), and the geometry pipeline (M2) are
+> complete; SVG emission, orchestration, and the border-suggester module are pending. See the
+> [Roadmap](_docs/roadmap.md) for milestone progress.
 
 ## Project Structure
 

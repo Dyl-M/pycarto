@@ -27,6 +27,7 @@ dependencies = [
     "geopandas>=1.1.3,<2",
     "httpxyz>=0.31.2,<1",
     "pyogrio>=0.12.1,<1",
+    "topojson>=1.10,<2",
 ]
 
 [project.urls]
@@ -97,6 +98,10 @@ strict = true
 
 [[tool.mypy.overrides]]
 module = ["geopandas.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["topojson.*"]
 ignore_missing_imports = true
 
 # --- Pytest ---
