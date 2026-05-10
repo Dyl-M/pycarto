@@ -15,6 +15,8 @@ import warnings
 
 # Third-party
 from geopandas import GeoDataFrame
+from shapely.geometry import MultiPolygon
+from shapely.geometry.base import BaseGeometry
 import topojson as tp
 
 logger = logging.getLogger(__name__)
@@ -31,11 +33,28 @@ REGION_PROJECTIONS: Final[dict[str, str]] = {
     "world": "+proj=robin +ellps=WGS84",
 }
 
-# TODO(pre-v1): auto_center_laea is fooled by Natural Earth's admin_0 aggregation of overseas territories into
-#  their parent country (e.g. NLD includes the Caribbean Netherlands, FRA includes French Guiana / DOM-TOM, USA
-#  includes Hawaii / Alaska). The resulting bbox spans oceans and the auto-derived center sits in open water.
-#  Needs a smarter centering strategy before v1 — candidates: largest-polygon bbox per row, area-weighted
-#  centroid, or sourcing centers from ne_50m_admin_0_map_subunits. Full subunit-level splitting can stay post-v1.
+
+def _main_polygon_bounds(geom: BaseGeometry) -> tuple[float, float, float, float]:
+    """Return the bbox of ``geom``'s dominant sub-polygon by area.
+
+    Used by :func:`auto_center_laea` to ignore Natural Earth's overseas-dependency aggregation: a ``MultiPolygon``
+    contributes only its largest part, not the union of all parts.
+
+    Dispatch:
+        - ``Polygon`` → ``geom.bounds``.
+        - ``MultiPolygon`` → bounds of ``max(geom.geoms, key=area)``. Python's stable :func:`max` returns the first
+          equal-area sub-polygon by index, which the M2.5 tie-break test locks in.
+        - Anything else (``GeometryCollection``, etc.) → defensive fall-back to ``geom.bounds``.
+
+    Args:
+        geom: A shapely geometry — typically a ``Polygon`` or ``MultiPolygon`` row from a ``GeoDataFrame``.
+
+    Returns:
+        A ``(minx, miny, maxx, maxy)`` tuple.
+    """
+    if isinstance(geom, MultiPolygon):
+        return max(geom.geoms, key=lambda part: part.area).bounds
+    return geom.bounds
 
 
 def auto_center_laea(gdf: GeoDataFrame) -> str:
@@ -45,15 +64,15 @@ def auto_center_laea(gdf: GeoDataFrame) -> str:
     deterministic, free of geographic-CRS centroid warnings, and matches the round-number style of the
     :data:`REGION_PROJECTIONS` presets.
 
-    Antimeridian-spanning selections (bbox width > 180°) emit both a :class:`UserWarning` and a ``pycarto.geom`` logger
-    warning — LAEA distorts severely across the dateline and the bbox center is meaningless. The PROJ string is still
-    returned so callers can decide what to do.
+    Each row contributes the bbox of its largest sub-polygon by area (via :func:`_main_polygon_bounds`), not its
+    full geometry. This keeps overseas dependencies from dragging the auto-center across an ocean — Natural Earth
+    aggregates Caribbean Netherlands into ``NLD``, French Guiana into ``FRA``, Hawaii / Alaska into ``USA``, and so
+    on, and those tiny sub-polygons would otherwise stretch the bbox by tens of degrees. Ties between equal-area
+    sub-polygons resolve to the first by index (Python stable :func:`max`).
 
-    Caveat: Natural Earth's ``admin_0_countries`` shapefile aggregates overseas territories into their parent
-    country polygon (e.g. Caribbean Netherlands inside ``NLD``, French Guiana inside ``FRA``, Hawaii / Alaska inside
-    ``USA``). For selections containing such countries the bbox stretches across oceans and the auto-derived center
-    lands in open water — fall back to a :data:`REGION_PROJECTIONS` preset for now. A smarter centering strategy is
-    a tracked pre-v1 fix (see the ``TODO(pre-v1)`` next to :data:`REGION_PROJECTIONS`).
+    Antimeridian-spanning selections (aggregated bbox width > 180°) emit both a :class:`UserWarning` and a
+    ``pycarto.geom`` logger warning — LAEA distorts severely across the dateline and the bbox center is meaningless.
+    The PROJ string is still returned so callers can decide what to do.
 
     Args:
         gdf: Selection in a geographic CRS (typically EPSG:4326 from :func:`pycarto.data.select`).
@@ -67,7 +86,14 @@ def auto_center_laea(gdf: GeoDataFrame) -> str:
     """
     if gdf.crs is None or not gdf.crs.is_geographic:
         raise ValueError(f"auto_center_laea expects a geographic CRS (e.g. EPSG:4326); got crs={gdf.crs!r}")
-    minx, miny, maxx, maxy = gdf.total_bounds
+    bounds = [_main_polygon_bounds(g) for g in gdf.geometry if isinstance(g, BaseGeometry) and not g.is_empty]
+    if bounds:
+        mins_x, mins_y, maxs_x, maxs_y = zip(*bounds, strict=True)
+        minx, miny = float(min(mins_x)), float(min(mins_y))
+        maxx, maxy = float(max(maxs_x)), float(max(maxs_y))
+    else:
+        # Degenerate selection (no usable geometry): preserve M2's NaN-propagating behavior.
+        minx, miny, maxx, maxy = gdf.total_bounds
     if (maxx - minx) > 180:
         msg = (
             f"Selection bbox spans {maxx - minx:.1f}° longitude (>180°). "

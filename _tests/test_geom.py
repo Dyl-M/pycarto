@@ -2,11 +2,12 @@
 
 # Standard library
 import logging
+import math
 
 # Third-party
 import geopandas as gpd
 import pytest
-from shapely.geometry import box
+from shapely.geometry import Polygon, box
 
 # Local
 from pycarto.geom import REGION_PROJECTIONS, auto_center_laea, reproject, simplify_topological
@@ -69,6 +70,35 @@ def test_auto_center_laea_rejects_missing_crs() -> None:
     )
     with pytest.raises(ValueError, match="geographic CRS"):
         auto_center_laea(gdf)
+
+
+def test_auto_center_laea_ignores_overseas_dependencies(country_with_overseas: gpd.GeoDataFrame) -> None:
+    """Center sits inside the metropolitan bbox, not over the Atlantic between metropolitan and overseas parts."""
+    proj = auto_center_laea(country_with_overseas)
+    # Metropolitan box is (2, 49, 7, 52) → bbox center (lon=4.5, lat=50.5).
+    assert proj == "+proj=laea +lat_0=50.5000 +lon_0=4.5000 +ellps=WGS84"
+
+
+def test_auto_center_laea_tiebreak_picks_first_by_index(overseas_tied_areas: gpd.GeoDataFrame) -> None:
+    """When sub-polygons tie on area, max() returns the first by index — center reflects polygon a, not b."""
+    proj = auto_center_laea(overseas_tied_areas)
+    # First sub-polygon (0, 0, 2, 2) → bbox center (lon=1.0, lat=1.0).
+    assert proj == "+proj=laea +lat_0=1.0000 +lon_0=1.0000 +ellps=WGS84"
+
+
+def test_auto_center_laea_empty_geometry_falls_back_to_total_bounds() -> None:
+    """All-empty-geometry frames hit the defensive fallback, preserving M2's NaN-propagating behavior."""
+    gdf = gpd.GeoDataFrame(
+        {"ISO_A3_EH": ["NOPE"], "geometry": [Polygon()]},
+        crs="EPSG:4326",
+    )
+    proj = auto_center_laea(gdf)
+    assert "nan" in proj.lower()
+    # Sanity check: the formatted center is genuinely NaN, not a finite degenerate value.
+    lat = float(proj.split("+lat_0=")[1].split()[0])
+    lon = float(proj.split("+lon_0=")[1].split()[0])
+    assert math.isnan(lat)
+    assert math.isnan(lon)
 
 
 def test_reproject_changes_crs(fake_world: gpd.GeoDataFrame) -> None:

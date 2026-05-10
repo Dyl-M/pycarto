@@ -3,7 +3,7 @@
 # Third-party
 import geopandas as gpd
 import pytest
-from shapely.geometry import Polygon, box
+from shapely.geometry import MultiPolygon, Polygon, box
 
 
 @pytest.fixture
@@ -37,6 +37,33 @@ def lowercase_columns_world(fake_world: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """Same shape as ``fake_world`` but every non-geometry column is lower-cased."""
     geom_col = fake_world.geometry.name
     return fake_world.rename(columns={c: c.lower() for c in fake_world.columns if c != geom_col})
+
+
+@pytest.fixture
+def country_with_overseas() -> gpd.GeoDataFrame:
+    """One-row gdf modelling a metropolitan polygon plus a tiny overseas dependency.
+
+    Mirrors Natural Earth's ``admin_0_countries`` aggregation (Caribbean NL inside ``NLD`` etc.). The metropolitan
+    box dominates by area so ``_main_polygon_bounds`` picks it; M2.5 asserts the auto-derived center stays inside
+    that bbox rather than drifting into the Atlantic.
+    """
+    metropolitan = box(2, 49, 7, 52)  # 5deg x 3deg = 15 deg2 in NW Europe
+    overseas = box(-70, 12, -67, 13)  # 3deg x 1deg = 3 deg2 in the Caribbean
+    return gpd.GeoDataFrame(
+        {"ISO_A3_EH": ["XYZ"], "geometry": [MultiPolygon([metropolitan, overseas])]},
+        crs="EPSG:4326",
+    )
+
+
+@pytest.fixture
+def overseas_tied_areas() -> gpd.GeoDataFrame:
+    """One-row gdf with two equal-area sub-polygons — locks the M2.5 first-by-index tie-break."""
+    first = box(0, 0, 2, 2)  # area = 4
+    second = box(50, 50, 52, 52)  # area = 4
+    return gpd.GeoDataFrame(
+        {"ISO_A3_EH": ["TIE"], "geometry": [MultiPolygon([first, second])]},
+        crs="EPSG:4326",
+    )
 
 
 @pytest.fixture

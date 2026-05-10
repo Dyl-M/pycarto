@@ -12,12 +12,12 @@
 
 ## Status
 
-| Milestone                            | Status              |
-|--------------------------------------|---------------------|
+| Milestone                             | Status              |
+|---------------------------------------|---------------------|
 | M0 — Project plumbing                 | Complete 2026-05-07 |
 | M1 — Data layer (`data.py`)           | Complete 2026-05-08 |
 | M2 — Geometry pipeline (`geom.py`)    | Complete 2026-05-08 |
-| M2.5 — Overseas-territories centering | Pending             |
+| M2.5 — Overseas-territories centering | Complete 2026-05-10 |
 | M3 — SVG emission (`svg.py`)          | Pending             |
 | M4 — `build_map` orchestration        | Pending             |
 | M5 — Border suggester (`borders.py`)  | Pending             |
@@ -99,7 +99,7 @@ empty test suite.
 **Gate:** ✔ `test_simplify_topological_preserves_topology` — adjacent polygons still share a non-zero boundary
 post-simplify (`_tests/test_geom.py`).
 
-### M2.5 — Overseas-territories centering fix (~¼ day)
+### M2.5 — Overseas-territories centering fix (~¼ day) — Complete (2026-05-10)
 
 `auto_center_laea` currently derives its center from `gdf.total_bounds`, which is fooled by Natural Earth's
 aggregation of overseas dependencies into the parent country polygon (Caribbean NL inside `NLD`, French Guiana
@@ -110,27 +110,27 @@ Tiny overseas territories disappear from the bbox by virtue of being orders of m
 metropolitan polygon. Bbox-center semantics from M2 are preserved; no new dep, no centroid warnings, no second
 shapefile.
 
-- [ ] Add a private helper `_main_polygon_bounds(geom) -> tuple[float, float, float, float]` in `pycarto/geom.py`:
+- [x] Add a private helper `_main_polygon_bounds(geom) -> tuple[float, float, float, float]` in `pycarto/geom.py`:
   returns the bbox of the largest sub-polygon by area for a `MultiPolygon`, or `geom.bounds` for a single
   `Polygon`. Defensive fall-back for `GeometryCollection` and empty geometries.
-- [ ] Rework `auto_center_laea` to aggregate `_main_polygon_bounds` row-wise instead of calling `gdf.total_bounds`.
+- [x] Rework `auto_center_laea` to aggregate `_main_polygon_bounds` row-wise instead of calling `gdf.total_bounds`.
   The CRS guard and antimeridian check (`maxx - minx > 180`) stay verbatim — they apply to the new aggregated
   bbox just the same.
-- [ ] Add a new fixture `country_with_overseas` to `_tests/conftest.py` — a one-row gdf with a `MultiPolygon`
+- [x] Add a new fixture `country_with_overseas` to `_tests/conftest.py` — a one-row gdf with a `MultiPolygon`
   built from a metropolitan box (e.g. `box(2, 49, 7, 52)`) plus a small Caribbean box (e.g. `box(-70, 12, -67,
   13)`). The metropolitan polygon must dominate by area so `_main_polygon_bounds` picks it.
-- [ ] Add `test_auto_center_laea_ignores_overseas_dependencies` — asserts the auto-derived center lon/lat sits
-  inside the metropolitan bbox (not in the mid-Atlantic). Optionally a second test on a `MultiPolygon` with two
-  near-equal polygons to lock in the deterministic tie-break (first by index).
-- [ ] Verify all existing M2 tests pass without modification — they all use single-Polygon fixtures, where the
+- [x] Add `test_auto_center_laea_ignores_overseas_dependencies` — asserts the auto-derived center lon/lat sits
+  inside the metropolitan bbox (not in the mid-Atlantic). Plus `test_auto_center_laea_tiebreak_picks_first_by_index`
+  on an `overseas_tied_areas` fixture (two equal-area sub-polygons) to lock in the deterministic tie-break.
+- [x] Verify all existing M2 tests pass without modification — they all use single-Polygon fixtures, where the
   largest-polygon bbox equals the polygon's own bbox, so the result is unchanged.
-- [ ] Remove the `TODO(pre-v1)` block in `pycarto/geom.py` (between `REGION_PROJECTIONS` and `auto_center_laea`).
+- [x] Remove the `TODO(pre-v1)` block in `pycarto/geom.py` (between `REGION_PROJECTIONS` and `auto_center_laea`).
   Rewrite the docstring "Caveat" paragraph to describe the strategy (`bbox of each row's largest sub-polygon`)
   rather than the historical pitfall.
-- [ ] Update `CLAUDE.md` (Projection bullet) and this file's "Risks / gotchas" entry: swap "Tracked as pre-v1
+- [x] Update `CLAUDE.md` (Projection bullet) and this file's "Risks / gotchas" entry: swap "Tracked as pre-v1
   fix" / "Pre-v1 fix needed" for "Fixed in M2.5". Move the entry to a "Resolved" sub-list or strike-through
   rather than deleting — the rationale is still useful context for future contributors.
-- [ ] Bump the M2.5 status row to `Complete <date>` and tick all checkboxes once the gate is green.
+- [x] Bump the M2.5 status row to `Complete <date>` and tick all checkboxes once the gate is green.
 
 **Gate:** ✔ `auto_center_laea` on the `country_with_overseas` fixture returns a center inside the metropolitan
 bbox; the M2 topology-preservation gate stays green; `uv run ruff check . && uv run mypy pycarto && uv run
@@ -220,12 +220,12 @@ entirely.
   `touches()`.
 - **Russia / antimeridian**: not in scope for v1, but flag in `geom.py` to warn if selection bbox spans > 180°
   longitude — projection will distort badly. Implemented in `auto_center_laea` (dual `UserWarning` + logger).
-- **Overseas territories**: Natural Earth's `admin_0_countries` aggregates dependencies into the parent country
-  polygon (Caribbean NL inside `NLD`, French Guiana inside `FRA`, Hawaii/Alaska inside `USA`). Selections that
-  include those countries get a bbox spanning oceans and `auto_center_laea` returns a center in open water.
-  **Pre-v1 fix needed** — current workaround is `REGION_PROJECTIONS` presets; long-term options are largest-polygon
-  bbox per row, area-weighted centroid, or sourcing centers from `ne_50m_admin_0_map_subunits`. Full subunit-level
-  splitting (separate `<path>` per dependency) can stay post-v1. Tracked as `TODO(pre-v1)` in `pycarto/geom.py`.
+- **Overseas territories** — **Resolved in M2.5**: Natural Earth's `admin_0_countries` aggregates dependencies
+  into the parent country polygon (Caribbean NL inside `NLD`, French Guiana inside `FRA`, Hawaii/Alaska inside
+  `USA`), so selections that include those countries used to get a bbox spanning oceans and `auto_center_laea`
+  returned a center in open water. M2.5 fixed this by aggregating each row's largest sub-polygon bbox by area
+  (private `_main_polygon_bounds` helper) instead of `gdf.total_bounds`; tiny overseas sub-polygons no longer
+  contribute. Full subunit-level splitting (separate `<path>` per dependency) stays post-v1.
 - **Singapore / GUF / small islands**: present in 1:50m, drop out at 1:110m. Tests at 1:110m must avoid them or use
   larger countries.
 - **`_data/` cache vs reproducibility**: M1 downloads from `naciscdn.org` (rolling-latest); URL-based pinning is not
