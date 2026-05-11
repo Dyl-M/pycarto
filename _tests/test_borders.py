@@ -51,9 +51,9 @@ def test_suggest_neighbors_finds_enclave(tmp_path: Path, enclave_synthetic: gpd.
     shp = _persist(enclave_synthetic, tmp_path)
     result = suggest_neighbors(["NTH", "STH", "EST", "WST"], shp_path=shp)
 
-    isos = [s.iso for s in result]
-    assert "CTR" in isos
-    ctr = next(s for s in result if s.iso == "CTR")
+    ctr_entries = [s for s in result if s.iso == "CTR"]
+    assert ctr_entries, "expected CTR in suggestions"
+    ctr = ctr_entries[0]
     assert ctr.reason == "enclave"
     assert ctr.score == 1.0
     assert set(ctr.neighbors_in_selection) == {"NTH", "STH", "EST", "WST"}
@@ -180,9 +180,9 @@ def test_suggest_neighbors_central_europe_surfaces_che() -> None:
     a tiny fragment), so the score lands well above 0.5.
     """
     result = suggest_neighbors(["FRA", "DEU", "ITA", "AUT"])
-    isos = [s.iso for s in result]
-    assert "CHE" in isos
-    che = next(s for s in result if s.iso == "CHE")
+    che_entries = [s for s in result if s.iso == "CHE"]
+    assert che_entries, "expected CHE in suggestions"
+    che = che_entries[0]
     assert che.reason == "shared_border"
     assert che.score > 0.5
 
@@ -191,9 +191,9 @@ def test_suggest_neighbors_central_europe_surfaces_che() -> None:
 def test_suggest_neighbors_baltic_corridor_finds_blr_as_enclave() -> None:
     """``["UKR","POL","LTU","LVA","RUS"]`` flags ``BLR`` as enclave — all NE-1:50m neighbors are in the selection."""
     result = suggest_neighbors(["UKR", "POL", "LTU", "LVA", "RUS"])
-    isos = [s.iso for s in result]
-    assert "BLR" in isos
-    blr = next(s for s in result if s.iso == "BLR")
+    blr_entries = [s for s in result if s.iso == "BLR"]
+    assert blr_entries, "expected BLR in suggestions"
+    blr = blr_entries[0]
     assert blr.reason == "enclave"
     assert blr.score == 1.0
 

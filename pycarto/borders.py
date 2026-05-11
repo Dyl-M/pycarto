@@ -16,14 +16,13 @@ single-point intersections (length 0) don't count as borders.
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal
+from typing import Final, Literal
+
+# Third-party
+from shapely.geometry.base import BaseGeometry
 
 # Local
 from pycarto.data import load_countries, select
-
-if TYPE_CHECKING:
-    # Third-party
-    from shapely.geometry.base import BaseGeometry
 
 # Pair adjacency threshold: ``geom.intersection(other).length`` greater than this counts as a shared border. Units
 # are degrees on the raw Natural Earth frame (≈ 11 cm at the equator). Filters out single-point corner contacts
@@ -66,6 +65,68 @@ def _bbox_intersects(
 ) -> bool:
     """Standard 2D AABB overlap test. Edge-touching (equal coordinates) counts as overlap."""
     return not (b1[2] < b2[0] or b1[0] > b2[2] or b1[3] < b2[1] or b1[1] > b2[3])
+
+
+def _compute_neighbors(
+    cand_iso: str,
+    cand_geom: BaseGeometry,
+    selection_geoms: list[tuple[str, BaseGeometry]],
+    candidate_geoms: list[tuple[str, BaseGeometry]],
+) -> dict[str, float]:
+    """Return ``{neighbor_iso: shared_length}`` for one candidate against selection rows + other candidates."""
+    nbrs: dict[str, float] = {}
+    for sel_iso, sel_geom in selection_geoms:
+        shared = cand_geom.intersection(sel_geom).length
+        if shared > _ADJACENCY_EPSILON:
+            nbrs[sel_iso] = shared
+    for other_iso, other_geom in candidate_geoms:
+        if other_iso == cand_iso:
+            continue
+        shared = cand_geom.intersection(other_geom).length
+        if shared > _ADJACENCY_EPSILON:
+            nbrs[other_iso] = shared
+    return nbrs
+
+
+def _score_candidate(
+    cand_iso: str,
+    cand_geom: BaseGeometry,
+    nbrs: dict[str, float],
+    selection_set: set[str],
+    *,
+    enclaves: bool,
+    shared_border_threshold: float,
+) -> Suggestion | None:
+    """Apply the enclave + shared-border scorers to one candidate; return at most one suggestion.
+
+    Returns ``None`` for: zero-neighbor candidates (island-or-stray-bbox-hit guard against vacuous ``all([])``),
+    candidates with no border on the selection (bbox prefilter brought them in but their borders are elsewhere),
+    and shared-border candidates whose ratio is below ``shared_border_threshold``.
+    """
+    if not nbrs:
+        return None
+    in_selection = {n for n in nbrs if n in selection_set}
+    if not in_selection:
+        return None
+
+    if enclaves and all(n in selection_set for n in nbrs):
+        return Suggestion(
+            iso=cand_iso,
+            reason="enclave",
+            score=1.0,
+            neighbors_in_selection=tuple(sorted(in_selection)),
+        )
+
+    shared_len = sum(nbrs[n] for n in in_selection)
+    ratio = shared_len / cand_geom.boundary.length
+    if ratio >= shared_border_threshold:
+        return Suggestion(
+            iso=cand_iso,
+            reason="shared_border",
+            score=ratio,
+            neighbors_in_selection=tuple(sorted(in_selection)),
+        )
+    return None
 
 
 def suggest_neighbors(
@@ -130,55 +191,21 @@ def suggest_neighbors(
     candidate_geoms: list[tuple[str, BaseGeometry]] = [
         (str(iso), geom) for iso, geom in candidates[["ISO_A3_EH", "geometry"]].itertuples(index=False, name=None)
     ]
-    cand_geom_lookup: dict[str, BaseGeometry] = dict(candidate_geoms)
     selection_set: set[str] = set(selection_codes)
 
     suggestions: list[Suggestion] = []
     for cand_iso, cand_geom in candidate_geoms:
-        nbrs: dict[str, float] = {}
-        for sel_iso, sel_geom in selection_geoms:
-            shared = cand_geom.intersection(sel_geom).length
-            if shared > _ADJACENCY_EPSILON:
-                nbrs[sel_iso] = shared
-        for other_iso, other_geom in candidate_geoms:
-            if other_iso == cand_iso:
-                continue
-            shared = cand_geom.intersection(other_geom).length
-            if shared > _ADJACENCY_EPSILON:
-                nbrs[other_iso] = shared
-
-        if not nbrs:
-            # Zero-neighbor candidate (an island, or a polygon that bbox-prefiltered in but doesn't actually
-            # touch anything). Vacuous ``all([])`` would falsely flag this as an enclave — bail explicitly.
-            continue
-        in_selection = {n for n in nbrs if n in selection_set}
-        if not in_selection:
-            # The bbox prefilter brought this candidate in, but its borders are entirely with other non-selected
-            # countries. Not a useful suggestion — skip.
-            continue
-
-        if enclaves and all(n in selection_set for n in nbrs):
-            suggestions.append(
-                Suggestion(
-                    iso=cand_iso,
-                    reason="enclave",
-                    score=1.0,
-                    neighbors_in_selection=tuple(sorted(in_selection)),
-                )
-            )
-            continue  # enclave wins; do not also score this candidate as shared_border.
-
-        shared_len = sum(nbrs[n] for n in in_selection)
-        ratio = shared_len / cand_geom_lookup[cand_iso].boundary.length
-        if ratio >= shared_border_threshold:
-            suggestions.append(
-                Suggestion(
-                    iso=cand_iso,
-                    reason="shared_border",
-                    score=ratio,
-                    neighbors_in_selection=tuple(sorted(in_selection)),
-                )
-            )
+        nbrs = _compute_neighbors(cand_iso, cand_geom, selection_geoms, candidate_geoms)
+        suggestion = _score_candidate(
+            cand_iso,
+            cand_geom,
+            nbrs,
+            selection_set,
+            enclaves=enclaves,
+            shared_border_threshold=shared_border_threshold,
+        )
+        if suggestion is not None:
+            suggestions.append(suggestion)
 
     suggestions.sort(key=lambda s: (_REASON_RANK[s.reason], -s.score, s.iso))
     return suggestions
