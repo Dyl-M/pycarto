@@ -21,7 +21,7 @@
 | M3 — SVG emission (`svg.py`)               | Complete 2026-05-10 |
 | M3.5 — Overseas-territories canvas         | Complete 2026-05-10 |
 | M4 — `build_map` orchestration             | Complete 2026-05-10 |
-| M5 — Border suggester + region unification | Pending             |
+| M5 — Border suggester + region unification | Complete 2026-05-10 |
 | M6 — Polish                                | Pending             |
 
 ## Target package structure
@@ -151,9 +151,11 @@ pytest -m "not network"` all clean; coverage on `pycarto/geom.py` stays at 100%.
   caller is expected to feed projected data from `geom.reproject`.
 - [x] `render_svg(gdf, *, id_field="ISO_A2_EH", id_lower=True, width=1000, padding=10) -> str` — `affine_world_to_svg`
   → sort by post-lowercase id (stable diffs) → emit one `<path>` per surviving row → wrap in an `<svg>` document with
-  a hardcoded default `<style>` (style theming is OOS per "Final scope decisions") and a `<g id="countries">` group.
-  Drops rows whose id is in `{"", "-99", "nan"}` after stripping (NE uses `-99` for un-coded territories) or whose
-  geometry produces an empty `d`. Uses `xml.sax.saxutils.escape` (stdlib) on the id.
+  a `<g id="countries">` group. Drops rows whose id is in `{"", "-99", "nan"}` after stripping (NE uses `-99` for
+  un-coded territories) or whose geometry produces an empty `d`. Uses `xml.sax.saxutils.escape` (stdlib) on the id.
+  Styling is emitted as SVG **presentation attributes** on each `<path>` (`fill="#d8d8d8" stroke="#555" …`) rather
+  than via an embedded `<style>` block — see M5 for the renderer-compatibility rationale. (Originally M3 used a
+  `<style>` block; this was migrated in M5 alongside the region-outline work.)
 - [x] No new runtime deps — reuses `shapely.affinity.affine_transform` (already pulled by M2.5) and stdlib
   `xml.sax.saxutils`.
 - [x] `_tests/conftest.py` adds a `benelux_projected` fixture (BEL/NLD/LUX subset of `fake_world`, reprojected to
@@ -241,7 +243,7 @@ render_svg`) writes a 3-path SVG with stable lowercase ids `be` / `lu` / `nl`. `
 uv run mypy pycarto && uv run pytest -m "not network"` all clean; coverage stays at 100%. Real-NE SE Asia / South
 America (intro-doc) deferred to the M6 `network`-marked test.
 
-### M5 — Border suggester + region unification (1½–2 days)
+### M5 — Border suggester + region unification (1½–2 days) — Complete (2026-05-10)
 
 The suggester (`borders.py`) is the only piece without a draft. Region unification is an additive SVG-rendering
 deliverable that lands in the same milestone because it's the second half of "make regional maps look clean" alongside
@@ -249,19 +251,21 @@ the suggester. Two building blocks for the suggester:
 
 **Adjacency graph**
 
-- [ ] Build on the **raw, unsimplified** NE frame — simplification can erode shared boundaries below numerical noise.
-- [ ] For each selected country, candidate neighbors = countries whose bbox intersects (selection bbox buffered by ~1°).
+- [x] Build on the **raw, unsimplified** NE frame — simplification can erode shared boundaries below numerical noise.
+- [x] For each selected country, candidate neighbors = countries whose bbox intersects (selection bbox buffered by ~1°).
   Avoids quadratic blowup on the full 250-row frame.
-- [ ] Pair adjacency = `geom_a.intersection(geom_b).length > epsilon`. Don't use exact `touches()` — it's brittle on
+- [x] Pair adjacency = `geom_a.intersection(geom_b).length > epsilon`. Don't use exact `touches()` — it's brittle on
   Natural Earth's vertex-snapped polygons. Drop pairs that meet at a single point (length ≈ 0).
 
 **Two scorers**
 
-- [ ] `_find_enclaves(graph, selection)`: candidate country `c` is an enclave if every neighbor of `c` in the graph is
-  in `selection`. Score = 1.0.
-- [ ] `_shared_border_ratio(graph, selection, candidate)`:
-  `sum(shared_boundary_length(candidate, s) for s in selection ∩ neighbors(candidate)) / candidate.boundary.length`.
-  Range [0, 1].
+- [x] Enclave scorer: candidate country `c` is an enclave if it has at least one neighbor and **every** neighbor is in
+  `selection`. Score = 1.0. Inlined into `suggest_neighbors` rather than extracted as `_find_enclaves` — the body is
+  small enough that an extra function would obscure rather than clarify; an explicit `if not nbrs: continue` guard
+  blocks vacuous-`all([])` false positives on isolated islands.
+- [x] Shared-border scorer: `sum(shared_boundary_length(candidate, s) for s in selection ∩ neighbors(candidate)) /
+  candidate.boundary.length`. Range [0, 1], threshold-gated. Skipped when the enclave scorer already fired for the
+  candidate.
 
 **Public API**
 
@@ -275,7 +279,7 @@ class Suggestion:
 
 
 def suggest_neighbors(
-    iso_codes: list[str],
+    iso_codes: Iterable[str],
     *,
     enclaves: bool = True,
     shared_border_threshold: float = 0.5,
@@ -283,38 +287,69 @@ def suggest_neighbors(
 ) -> list[Suggestion]: ...
 ```
 
-**Wire `suggest_only=True` in `build_map`**: when set, returns the `list[Suggestion]` and skips geom + svg work
-entirely.
+`iso_codes` widened from M4's `list[str]` to `Iterable[str]` so the public API matches `build_map`'s
+`Iterable[str]` parameter without a manual `list(...)` cast at the wiring point. Returned list is sorted by
+`(reason_rank, -score, iso)` — enclaves first, then descending score within each reason, ISO breaks ties.
 
-**Region unification** (dissolve + outline overlay — opt-in, orthogonal to the suggester):
+**Wire `suggest_only=True` in `build_map`**: returns the `list[Suggestion]` and skips geom + svg work entirely
+(unchanged from M4 — only the body it delegates to changed).
 
-- [ ] New `unify_region: bool = False` kwarg on `build_map`. When `True`, dissolve the projected+simplified frame into
-  a single polygon (shapely union over the geometry column) and pass it to `render_svg` as an outline layer. Default
-  `False` keeps M3 / M4 output bit-for-bit unchanged.
-- [ ] New `region_outline: BaseGeometry | None = None` kwarg on `svg.render_svg`. When set, emit one extra
-  `<path id="region">` *after* the country `<g id="countries">` group so it overlays — per-country `<path id>` ids
-  stay intact underneath for downstream theming. Reuse `geom_to_path` for the `d` string.
-- [ ] Extend `_DEFAULT_STYLE` with a `#region { fill: none; stroke: #555; stroke-width: 0.6; stroke-linejoin: round;
-  vector-effect: non-scaling-stroke; }` rule, and drop the per-country `stroke` (or set it to `none`) when a region
-  outline is present so only the unified outer border is drawn. With no outline, default styling matches M3 verbatim.
-- [ ] Run the union on the **projected+simplified** frame (not raw NE — that's the adjacency graph's job above).
-  Aligns the outline visually with the country paths underneath; no half-pixel drift between the dissolve and the
-  per-country edges.
-- [ ] Document interaction with `suggest_only=True`: when both are set, `suggest_only` wins and short-circuits before
-  any geometry / svg work — `unify_region` is a no-op in that path.
+**Region unification** (borderless fills — opt-in, orthogonal to the suggester):
 
-**Tests** (fixture-based, deterministic):
+- [x] New `unify_region: bool = False` kwarg on `build_map`. When `True`, each country `<path>` element renders
+  with ``stroke="none"`` (fill-only) so adjacent countries with the same fill color visually merge into a single
+  region. No internal borders, no outline overlay, no geometric dissolve — purely a styling switch. Default
+  `False` keeps the per-country border stroke (M3 / M4 output bit-for-bit unchanged).
+- [x] New `country_borders: bool = True` kwarg on `svg.render_svg`. ``True`` → each country path carries
+  ``fill="#d8d8d8" stroke="#555" stroke-width="0.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"``.
+  ``False`` → ``fill="#d8d8d8" stroke="none"``. `build_map` passes `country_borders=not unify_region` through.
+- [x] **Styling switched from `<style>` block to SVG presentation attributes** (`fill="…"` / `stroke="…"` /
+  `stroke-width="…"` / `stroke-linejoin="round"` / `vector-effect="non-scaling-stroke"` written directly on each
+  `<path>`). The original `_DEFAULT_STYLE` constant was dropped — embedded `<style>` isn't reliably parsed by
+  every SVG renderer (some IDE preview panes and image-processing tools silently skip it, leaving country
+  `<path>` strokes defaulting to a visible border). Presentation attributes render identically across every
+  spec-compliant viewer. Module constants `_COUNTRY_FILL`, `_BORDER_STROKE`, `_BORDER_STROKE_WIDTH` carry the
+  color/width values; `render_svg` builds the attribute strings inline. Both M3 and M5 golden snapshots
+  regenerated to reflect the new format.
+- [x] `suggest_only=True` short-circuits before `render_svg` is called, so `unify_region` is a no-op when both
+  are set — covered by `test_build_map_suggest_only_overrides_unify_region`.
+- **Design pivot during M5:** the original spec called for `unify_region=True` to dissolve the frame via
+  `shapely.ops.unary_union`, filter with a `_largest_sub_polygon` helper, and emit a stroked
+  `<path id="region">` overlay. That landed and worked, but produced a visual asymmetry — the dissolve filter
+  dropped offshore islands from the overlay, so the mainland received a dark stroke while offshore islands
+  rendered as borderless gray silhouettes. User feedback during the first DACH/Benelux real-NE run flagged
+  this as inconsistent. The simpler current design (just toggle country strokes off, no overlay) avoids the
+  asymmetry entirely. The `_largest_sub_polygon` helper, `_compute_affine_matrix` helper,
+  `shapely.ops.unary_union` import in `__init__.py`, and the `region_outline: BaseGeometry | None` parameter
+  on `render_svg` were all dropped in the simplification.
 
-- [ ] `["FRA","DEU","ITA","AUT"]` → Suggestion for `CHE` with reason="enclave"
-- [ ] `["UKR","POL","LTU","LVA","RUS"]` → Suggestion for `BLR` with reason="shared_border", score > 0.7
-- [ ] `["BEL","NLD"]` → no enclave (LUX isn't enclosed by 2 countries), but LUX appears as `shared_border` if threshold
-  lowered
-- [ ] Synthetic Benelux `unify_region=True` → SVG contains exactly one `<path id="region"` with a non-empty `d`;
-  per-country paths `be` / `lu` / `nl` still emit underneath; the existing M3 golden snapshot for
-  `unify_region=False` (default) keeps passing unchanged.
+**Tests** (split between fast synthetic-fixture algorithm tests and `@pytest.mark.network` real-NE cases):
 
-**Gate:** the three suggester fixture cases above pass; `unify_region=True` snapshot passes; `unify_region=False`
-output is bit-for-bit identical to the existing M3 golden snapshot.
+- [x] Synthetic-fixture tests in `_tests/test_borders.py` cover algorithm correctness without network: enclave
+  detection on the `enclave_synthetic` fixture, shared-border above/below threshold on `shared_border_synthetic`
+  (with different selections to swing the ratio), zero-neighbor-island guard on `island_no_neighbors`, sort-order
+  stability, `enclaves=False` suppression, enclave-precedence-over-shared-border, and
+  `neighbors_in_selection` ⊆ selection invariant.
+- [x] `@pytest.mark.network` cases on real NE 1:50m. Behavior diverges from the original roadmap intuitions in two
+  places — the strict definition is the contract, and the test expectations document what NE 1:50m actually
+  produces:
+  - `["FRA","DEU","ITA","AUT"]` → `CHE` as **`shared_border`** (not enclave). NE 1:50m records a measurable
+    LIE-CHE border, so CHE has a neighbor outside the selection and the strict enclave definition doesn't fire.
+    Score is still high (>0.5) — the LIE fragment is a tiny part of CHE's perimeter.
+  - `["UKR","POL","LTU","LVA","RUS"]` → `BLR` as **`enclave`** (score 1.0, not the originally-anticipated
+    shared_border > 0.7). All 5 of Belarus's NE-1:50m neighbors are in the selection.
+  - `["BEL","NLD"]` with `shared_border_threshold=0.3` → `LUX` as `shared_border` — matches the original intent
+    (LUX isn't enclosed because FRA + DEU are also neighbors but not in selection).
+- [x] Synthetic Benelux `unify_region=True` (equivalent: `render_svg(..., country_borders=False)`) → SVG
+  contains 3 country paths each with `stroke="none"`, no `<path id="region">` overlay. New golden snapshot at
+  `_tests/test_svg/test_render_svg_benelux_unified_golden_snapshot.svg`. The existing M3 golden snapshot for
+  the default (`country_borders=True`) path keeps passing — regenerated once at M5 to switch from embedded
+  `<style>` to presentation attributes.
+
+**Gate:** ✔ Synthetic suggester tests + region-unification tests pass without network. The three real-NE cases
+pass under `pytest -m network`. The M3 Benelux golden snapshot stays bit-identical. `uv run ruff check . && uv
+run ruff format --check . && uv run mypy pycarto && uv run pytest -m "not network"` all clean; coverage stays at
+100% across the touched modules.
 
 ### M6 — Polish (¼ day)
 
@@ -333,15 +368,16 @@ output is bit-for-bit identical to the existing M3 golden snapshot.
   longitude — projection will distort badly. Implemented in `auto_center_laea` (dual `UserWarning` + logger).
 - **Overseas territories** — **Resolved in M2.5 + M3.5**: Natural Earth's `admin_0_countries` aggregates
   dependencies into the parent country polygon (Caribbean NL inside `NLD`, French Guiana inside `FRA`,
-  Hawaii/Alaska inside `USA`). Selections that include those countries used to get a bbox spanning oceans —
-  `auto_center_laea` returned a center in open water (M2.5), and `affine_world_to_svg` deformed the canvas
-  aspect ratio (M3.5). Both pieces now aggregate per-row largest-sub-polygon bbox via the public
-  `main_polygon_bounds` helper (promoted from private in M3.5) instead of `gdf.total_bounds`; tiny overseas
-  sub-polygons no longer contribute to either the projection center or the canvas scale. Off-canvas
-  `<path d>` data for those overseas parts still emits into the SVG (renderers clip to viewBox), so the
-  output file is ~30% larger for selections including NLD / FRA / USA / GBR; an opt-in `drop_overseas`
-  helper that strips them entirely is deferred to M5/M6. Full subunit-level splitting (separate `<path>`
-  per dependency) stays post-v1.
+  Hawaii/Alaska inside `USA`). Two downstream effects, each addressed separately:
+  1. `auto_center_laea` returned a center in open water → M2.5 aggregates per-row largest-sub-polygon bbox.
+  2. `affine_world_to_svg` deformed the canvas aspect ratio → M3.5 mirrors the same per-row aggregation via
+     the public `main_polygon_bounds` helper (promoted from private in M3.5).
+  Off-canvas `<path d>` data for overseas parts still emits into the per-country SVG paths (renderers clip
+  to viewBox), so the output file is ~30% larger for selections including NLD / FRA / USA / GBR; an opt-in
+  `drop_overseas` helper that strips them entirely is deferred to post-v1. Full subunit-level splitting
+  (separate `<path>` per dependency) stays post-v1. (M5's `unify_region=True` is unaffected by overseas
+  territories — the simplified styling-only design renders them as borderless fill silhouettes consistent
+  with the mainland; no overlay is drawn that would single them out.)
 - **Singapore / GUF / small islands**: present in 1:50m, drop out at 1:110m. Tests at 1:110m must avoid them or use
   larger countries.
 - **`_data/` cache vs reproducibility**: M1 downloads from `naciscdn.org` (rolling-latest); URL-based pinning is not

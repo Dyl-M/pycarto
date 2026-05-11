@@ -96,6 +96,78 @@ def benelux_projected(fake_world: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 
 
 @pytest.fixture
+def enclave_synthetic() -> gpd.GeoDataFrame:
+    """5-country frame where the central polygon is fully enclosed by 4 frame strips.
+
+    Used by M5 enclave-detection tests: with selection ``{"NTH","STH","EST","WST"}``, the candidate ``"CTR"``
+    has every neighbor in the selection (single-point corner contacts between strips fall below the adjacency
+    epsilon and don't count) → score 1.0.
+    """
+    return gpd.GeoDataFrame(
+        {
+            "ISO_A3_EH": ["CTR", "NTH", "STH", "EST", "WST"],
+            "ISO_A2_EH": ["CT", "NT", "ST", "ES", "WS"],
+            "NAME": ["Center", "North", "South", "East", "West"],
+            "geometry": [
+                box(4, 4, 6, 6),  # CTR
+                box(3, 6, 7, 7),  # NTH (shares y=6 edge with CTR)
+                box(3, 3, 7, 4),  # STH (shares y=4 edge with CTR)
+                box(6, 4, 7, 6),  # EST (shares x=6 edge with CTR)
+                box(3, 4, 4, 6),  # WST (shares x=4 edge with CTR)
+            ],
+        },
+        crs="EPSG:4326",
+    )
+
+
+@pytest.fixture
+def shared_border_synthetic() -> gpd.GeoDataFrame:
+    """4-country layout where ``CCC`` is wedged between ``AAA`` and ``BBB`` and shares a high-ratio border with both.
+
+    ``DDD`` (a tiny strip on top of ``CCC``) is intentionally left out of the test selection so ``CCC`` has at
+    least one neighbor outside the selection — that's what stops the enclave scorer from claiming ``CCC`` and
+    forces the shared-border path. With selection ``{"AAA","BBB"}`` the ratio is
+    ``(10 + 10) / 22 ≈ 0.909`` which clears the default 0.5 threshold.
+    """
+    return gpd.GeoDataFrame(
+        {
+            "ISO_A3_EH": ["AAA", "BBB", "CCC", "DDD"],
+            "ISO_A2_EH": ["AA", "BB", "CC", "DD"],
+            "NAME": ["A", "B", "C", "D"],
+            "geometry": [
+                box(0, 0, 1, 10),  # AAA — selection
+                box(2, 0, 3, 10),  # BBB — selection
+                box(1, 0, 2, 10),  # CCC — candidate (tall thin column)
+                box(1, 10, 2, 11),  # DDD — outside selection (forces non-enclave)
+            ],
+        },
+        crs="EPSG:4326",
+    )
+
+
+@pytest.fixture
+def island_no_neighbors() -> gpd.GeoDataFrame:
+    """Selection mass plus a disjoint island that lands inside the buffered candidate bbox but touches nothing.
+
+    Locks the zero-neighbor enclave guard: vacuous ``all([])`` would otherwise falsely flag the island as an
+    enclave of any selection. With selection ``{"AAA"}`` the bbox buffer puts ``ISL`` in the candidate set, but
+    its ``intersection.length`` against ``AAA`` is 0 → empty neighbors → skipped, not suggested.
+    """
+    return gpd.GeoDataFrame(
+        {
+            "ISO_A3_EH": ["AAA", "ISL"],
+            "ISO_A2_EH": ["AA", "IS"],
+            "NAME": ["A", "Island"],
+            "geometry": [
+                box(0, 0, 10, 10),  # AAA — main land mass
+                box(11, 0, 12, 1),  # ISL — disjoint, inside buffered bbox (touches at minx=11)
+            ],
+        },
+        crs="EPSG:4326",
+    )
+
+
+@pytest.fixture
 def adjacent_polygons() -> gpd.GeoDataFrame:
     """Two adjacent polygons sharing a wiggly edge — *not* a straight line.
 

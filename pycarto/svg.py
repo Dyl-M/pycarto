@@ -23,11 +23,13 @@ from pycarto.geom import main_polygon_bounds
 
 logger = logging.getLogger(__name__)
 
-# Hardcoded default style — style theming is explicitly out-of-scope for v1 (see roadmap "Final scope decisions").
-_DEFAULT_STYLE: Final[str] = (
-    "path { fill: #d8d8d8; stroke: #555; stroke-width: 0.6; "
-    "stroke-linejoin: round; vector-effect: non-scaling-stroke; }"
-)
+# Style theming is explicitly out-of-scope for v1 (see roadmap "Final scope decisions"); each ``<path>`` carries
+# its styling on SVG presentation attributes rather than via an embedded ``<style>`` block. Embedded ``<style>``
+# isn't reliably honored by every SVG renderer (some IDE previews and image-processing tools ignore it), and
+# presentation attributes render identically across every spec-compliant viewer.
+_COUNTRY_FILL: Final[str] = "#d8d8d8"
+_BORDER_STROKE: Final[str] = "#555"
+_BORDER_STROKE_WIDTH: Final[str] = "0.6"
 # Sentinel ids dropped before emission. ``-99`` is Natural Earth's "no code assigned" marker;
 # ``nan`` covers stringified missing values; the empty string covers blank / whitespace-only ids.
 _SKIP_IDS: Final[frozenset[str]] = frozenset({"", "-99", "nan"})
@@ -145,17 +147,22 @@ def render_svg(
     id_lower: bool = True,
     width: int = 1000,
     padding: int = 10,
+    country_borders: bool = True,
 ) -> str:
     r"""Render a projected ``GeoDataFrame`` as a complete SVG document string.
 
-    Pipeline: :func:`affine_world_to_svg` → sort rows by ``id_field`` value → emit one ``<path>`` per surviving row via
-    :func:`geom_to_path` → wrap in an ``<svg>`` document with a hardcoded default ``<style>`` and a
-    ``<g id="countries">`` grouping element.
+    Pipeline: :func:`affine_world_to_svg` → sort rows by ``id_field`` value → emit one ``<path>`` per surviving row
+    via :func:`geom_to_path` → wrap in an ``<svg>`` document with a ``<g id="countries">`` grouping element.
 
     Rows are sorted by their (post-lowercase) id so SVG diffs stay stable across regenerations. Rows whose id is in
     ``{"", "-99", "nan"}`` after stripping, or whose geometry produces an empty ``d`` string, are dropped before
     emission — Natural Earth uses ``-99`` for un-coded territories, and ``<path id="-99"/>`` would be invalid HTML
     and brittle to style downstream.
+
+    Styling is emitted as **SVG presentation attributes** on each ``<path>`` (``fill``, ``stroke``, etc.) rather
+    than via an embedded ``<style>`` block. Some renderers (notably some IDE preview panes and image-processing
+    libraries) skip embedded CSS, which would silently leave country borders defaulting to a black stroke;
+    presentation attributes render identically across every spec-compliant viewer.
 
     Args:
         gdf: A projected frame, typically the output of :func:`pycarto.geom.simplify_topological` after
@@ -165,6 +172,10 @@ def render_svg(
         id_lower: Lowercase the id before emission. Defaults to ``True`` (Wikimedia convention).
         width: Output SVG width in pixels. Height is derived from the projected aspect ratio.
         padding: Margin in pixels around the map.
+        country_borders: When ``True`` (default), each country ``<path>`` carries the dark border stroke.
+            When ``False``, country paths render fill-only (``stroke="none"``) — used by
+            :func:`pycarto.build_map` when ``unify_region=True`` so adjacent countries with the same fill blend
+            into a single visual region.
 
     Returns:
         The full SVG document as a UTF-8-safe string with ``\\n`` line endings, ready for
@@ -185,17 +196,22 @@ def render_svg(
         entries.append((cid, d_str))
     entries.sort(key=lambda entry: entry[0])
 
+    if country_borders:
+        country_attrs = (
+            f'fill="{_COUNTRY_FILL}" stroke="{_BORDER_STROKE}" stroke-width="{_BORDER_STROKE_WIDTH}" '
+            'stroke-linejoin="round" vector-effect="non-scaling-stroke"'
+        )
+    else:
+        country_attrs = f'fill="{_COUNTRY_FILL}" stroke="none"'
+
     # Default ``escape`` only handles ``<``, ``>``, ``&`` — extend to ``"`` so a configurable ``id_field``
     # carrying double-quotes (custom column, ``NAME`` variants in non-NE data, etc.) can't break the SVG attribute.
-    paths = [f'  <path id="{escape(cid, {chr(34): "&quot;"})}" d="{d_str}"/>' for cid, d_str in entries]
+    paths = [f'  <path id="{escape(cid, {chr(34): "&quot;"})}" {country_attrs} d="{d_str}"/>' for cid, d_str in entries]
     viewbox_str = " ".join(str(v) for v in viewbox)
     body = "\n".join(paths)
     return (
         '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n'
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{viewbox_str}" width="{width}" height="{height}">\n'
-        "  <style>\n"
-        f"    {_DEFAULT_STYLE}\n"
-        "  </style>\n"
         '  <g id="countries">\n'
         f"{body}\n"
         "  </g>\n"

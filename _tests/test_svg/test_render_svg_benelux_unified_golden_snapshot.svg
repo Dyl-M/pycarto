@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1471" width="1000" height="1471">
+  <g id="countries">
+  <path id="be" fill="#d8d8d8" stroke="none" d="M932.3,1461.5L966.6,618.2L101.2,552.7L10.0,1392.4L932.3,1461.5Z"/>
+  <path id="lu" fill="#d8d8d8" stroke="none" d="M932.3,1461.5L943.6,1180.5L581.6,1160.7L562.8,1441.4L932.3,1461.5Z"/>
+  <path id="nl" fill="#d8d8d8" stroke="none" d="M943.6,1180.5L990.0,55.8L328.5,10.0L220.3,1131.1L943.6,1180.5Z"/>
+  </g>
+</svg>

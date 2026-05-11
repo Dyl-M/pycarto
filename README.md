@@ -25,19 +25,19 @@ The project was started as a side project to help fill out
 general-purpose — they work in any context where a clean SVG region map is needed.
 
 > **Status:** Pre-alpha — environment scaffolding (M0), the data layer (M1), the geometry pipeline (M2 + M2.5
-> overseas-territories centering fix), SVG emission (M3 + M3.5 overseas-territories canvas-bounds fix), and
-> `build_map` orchestration (M4) are complete; the border-suggester module (M5) and polish (M6) are pending.
-> See the [Roadmap](_docs/roadmap.md) for milestone progress.
+> overseas-territories centering fix), SVG emission (M3 + M3.5 overseas-territories canvas-bounds fix),
+> `build_map` orchestration (M4), and the border-suggester + region-unification module (M5) are complete;
+> only polish (M6) is pending. See the [Roadmap](_docs/roadmap.md) for milestone progress.
 
 ## Project Structure
 
 ```
 pycarto/
-├── __init__.py    # public API: build_map, suggest_neighbors, Suggestion (M4)
+├── __init__.py    # public API: build_map (with unify_region), suggest_neighbors, Suggestion (M4 + M5)
 ├── data.py        # Natural Earth fetch, cache, column normalization (M1)
 ├── geom.py        # projection presets, reprojection, topological simplification (M2 + M2.5)
 ├── borders.py     # adjacency graph + neighbor suggester (M5)
-├── svg.py         # affine world→SVG, path emission, viewBox/style assembly (M3 + M3.5)
+├── svg.py         # affine world→SVG, path emission, fill-only unified mode (M3 + M3.5 + M5)
 └── py.typed       # PEP 561 typed-library marker
 ```
 
@@ -56,10 +56,11 @@ build_map(
     simplify_tolerance=4000,
 )
 
-# Or ask for neighbor suggestions to clean up the selection first
-suggestions = suggest_neighbors(["FRA", "DEU", "ITA", "AUT"])
-# -> [Suggestion(iso="CHE", reason="enclave", score=1.0,
-#                neighbors_in_selection=("FRA", "DEU", "ITA", "AUT"))]
+# Ask for neighbor suggestions to clean up the selection first.
+# Returns a list[Suggestion] sorted (enclaves first, then by descending score, then by iso).
+suggestions = suggest_neighbors(["UKR", "POL", "LTU", "LVA", "RUS"])
+# -> [Suggestion(iso="BLR", reason="enclave", score=1.0,
+#                neighbors_in_selection=("LTU", "LVA", "POL", "RUS", "UKR"))]
 ```
 
 `build_map` also exposes a dry-run mode that returns suggestions without writing the SVG:
@@ -72,9 +73,19 @@ suggestions = build_map(
 )
 ```
 
-> **M5 caveat:** `suggest_neighbors` (and `build_map(..., suggest_only=True)`) currently raise
-> `NotImplementedError` — the signatures are locked in M4 but the bodies land in M5. Plain `build_map(...)` calls
-> work today.
+Add `unify_region=True` for a borderless rendering — every country `<path>` emits `stroke="none"` so adjacent
+countries with the same fill visually merge into a single region:
+
+```python
+build_map(
+    iso_codes=["BEL", "NLD", "LUX"],
+    output_path="benelux_unified.svg",
+    unify_region=True,
+)
+```
+
+Per-country `<path id="…">` elements stay intact (just borderless), so they remain queryable for downstream
+theming or selection.
 
 ## Development
 

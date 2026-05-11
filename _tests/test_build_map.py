@@ -107,15 +107,15 @@ def test_build_map_simplify_tolerance_zero_short_circuits(tmp_path: Path, fake_w
     assert out.exists()
 
 
-def test_build_map_suggest_only_delegates_to_stub_and_raises(tmp_path: Path, fake_world_shp: Path) -> None:
-    """``suggest_only=True`` calls the M5 stub ``suggest_neighbors``, which raises NotImplementedError."""
-    with pytest.raises(NotImplementedError, match="lands in M5"):
-        build_map(
-            ["BEL", "NLD"],
-            tmp_path / "ignored.svg",
-            suggest_only=True,
-            shp_path=fake_world_shp,
-        )
+def test_build_map_suggest_only_returns_list_of_suggestions(tmp_path: Path, fake_world_shp: Path) -> None:
+    """``suggest_only=True`` calls :func:`pycarto.borders.suggest_neighbors` and returns its ``list[Suggestion]``."""
+    result = build_map(
+        ["BEL", "NLD"],
+        tmp_path / "ignored.svg",
+        suggest_only=True,
+        shp_path=fake_world_shp,
+    )
+    assert isinstance(result, list)
 
 
 def test_build_map_defaults_bare_filename_to_img_folder(
@@ -145,6 +145,50 @@ def test_build_map_respects_explicit_directory_in_output_path(tmp_path: Path, fa
 def test_build_map_suggest_only_does_not_write_output(tmp_path: Path, fake_world_shp: Path) -> None:
     """``suggest_only=True`` short-circuits *before* any disk I/O (no SVG write)."""
     target = tmp_path / "should_not_exist.svg"
-    with pytest.raises(NotImplementedError):
-        build_map(["BEL", "NLD"], target, suggest_only=True, shp_path=fake_world_shp)
+    result = build_map(["BEL", "NLD"], target, suggest_only=True, shp_path=fake_world_shp)
+    assert isinstance(result, list)
+    assert not target.exists()
+
+
+def test_build_map_unify_region_drops_country_strokes(tmp_path: Path, fake_world_shp: Path) -> None:
+    """``unify_region=True`` makes every country ``<path>`` render fill-only — no per-country border strokes."""
+    out = build_map(
+        ["BEL", "NLD", "LUX"],
+        tmp_path / "benelux_unified.svg",
+        unify_region=True,
+        shp_path=fake_world_shp,
+    )
+
+    assert isinstance(out, Path)
+    body = out.read_text(encoding="utf-8")
+    # All 3 country paths are present with stroke="none"; no region overlay element is emitted.
+    assert 'id="be"' in body
+    assert 'id="lu"' in body
+    assert 'id="nl"' in body
+    assert body.count('stroke="none"') == 3
+    assert 'stroke="#555"' not in body
+    assert 'id="region"' not in body
+
+
+def test_build_map_unify_region_default_off_keeps_country_strokes(tmp_path: Path, fake_world_shp: Path) -> None:
+    """Default ``unify_region=False`` keeps the per-country border stroke (M3 contract)."""
+    out = build_map(["BEL", "NLD", "LUX"], tmp_path / "with_borders.svg", shp_path=fake_world_shp)
+
+    assert isinstance(out, Path)
+    body = out.read_text(encoding="utf-8")
+    assert body.count('stroke="#555"') == 3
+    assert 'stroke="none"' not in body
+
+
+def test_build_map_suggest_only_overrides_unify_region(tmp_path: Path, fake_world_shp: Path) -> None:
+    """``suggest_only=True`` short-circuits before any geom / svg work; ``unify_region`` is a no-op in that path."""
+    target = tmp_path / "should_not_exist.svg"
+    result = build_map(
+        ["BEL", "NLD"],
+        target,
+        suggest_only=True,
+        unify_region=True,
+        shp_path=fake_world_shp,
+    )
+    assert isinstance(result, list)
     assert not target.exists()

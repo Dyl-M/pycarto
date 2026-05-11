@@ -250,7 +250,7 @@ def test_render_svg_escapes_xml_special_chars_in_id() -> None:
 
 
 def test_render_svg_document_shape(projected_square: gpd.GeoDataFrame) -> None:
-    """Output document includes the XML prolog, a viewBox, the default style, the countries group, and a trailing nl."""
+    """Output includes the XML prolog, viewBox, presentation-attribute styling, and the countries group."""
     out = render_svg(projected_square, width=1000, padding=10)
 
     assert out.startswith('<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n')
@@ -258,7 +258,10 @@ def test_render_svg_document_shape(projected_square: gpd.GeoDataFrame) -> None:
     assert 'viewBox="0 0 1000 1000"' in out
     assert 'width="1000"' in out
     assert 'height="1000"' in out
-    assert "<style>" in out
+    # No embedded ``<style>`` block — styling is on per-path presentation attributes for renderer compatibility.
+    assert "<style>" not in out
+    assert 'fill="#d8d8d8"' in out
+    assert 'stroke="#555"' in out
     assert '<g id="countries">' in out
     assert out.endswith("</svg>\n")
 
@@ -281,3 +284,41 @@ def test_render_svg_benelux_golden_snapshot(
 ) -> None:
     """M3 gate: Benelux selection (synthetic fake_world subset, LAEA Europe) round-trips to a stable SVG snapshot."""
     file_regression.check(render_svg(benelux_projected), extension=".svg")
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# render_svg — country_borders flag (M5)
+# ----------------------------------------------------------------------------------------------------------------------
+
+
+def test_render_svg_country_borders_false_drops_strokes(benelux_projected: gpd.GeoDataFrame) -> None:
+    """``country_borders=False`` emits country paths with ``stroke="none"`` — no per-country outlines drawn."""
+    out_no_borders = render_svg(benelux_projected, country_borders=False)
+    out_with_borders = render_svg(benelux_projected)
+
+    # Fills are present in both modes.
+    assert out_no_borders.count('fill="#d8d8d8"') == 3
+    assert out_with_borders.count('fill="#d8d8d8"') == 3
+    # ``country_borders=False`` → every country path carries ``stroke="none"`` and no ``stroke="#555"``.
+    assert out_no_borders.count('stroke="none"') == 3
+    assert 'stroke="#555"' not in out_no_borders
+    # Default → each country path carries the border stroke directly.
+    assert out_with_borders.count('stroke="#555"') == 3
+    assert 'stroke="none"' not in out_with_borders
+
+
+def test_render_svg_country_borders_false_emits_no_region_overlay(benelux_projected: gpd.GeoDataFrame) -> None:
+    """``country_borders=False`` produces fills-only output — no ``<path id="region">`` overlay element."""
+    out = render_svg(benelux_projected, country_borders=False)
+
+    assert 'id="region"' not in out
+    # No element carries an ``stroke="#555"`` border in this mode.
+    assert 'stroke="#555"' not in out
+
+
+def test_render_svg_benelux_unified_golden_snapshot(
+    benelux_projected: gpd.GeoDataFrame,
+    file_regression: FileRegressionFixture,
+) -> None:
+    """M5 gate: Benelux + ``country_borders=False`` round-trips to a stable fills-only SVG snapshot."""
+    file_regression.check(render_svg(benelux_projected, country_borders=False), extension=".svg")

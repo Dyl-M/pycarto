@@ -38,6 +38,7 @@ def build_map(
     shp_path: Path | None = None,
     suggest_only: bool = False,
     suggestions: Iterable[str] | None = None,
+    unify_region: bool = False,
 ) -> Path | list[Suggestion]:
     """Generate a region SVG from a list of ISO codes by composing data → geom → svg.
 
@@ -72,11 +73,15 @@ def build_map(
         id_lower: Lowercase the id (Wikimedia / Liquipedia convention).
         filter_field: Column to filter ``iso_codes`` against (default ``ISO_A3_EH``).
         shp_path: Override Natural Earth fetch by pointing at an existing shapefile (typically used in tests).
-        suggest_only: When ``True``, return suggestions and skip geom + svg work entirely. Body lands in M5 —
-            currently raises :class:`NotImplementedError` via the :func:`suggest_neighbors` stub.
+        suggest_only: When ``True``, return suggestions and skip geom + svg work entirely. Wins over
+            ``unify_region`` (the dissolve is never computed in this path).
         suggestions: Additional codes to merge into the selection (curate-and-rebuild flow). Use case: the caller
             ran :func:`suggest_neighbors`, reviewed the result, and now wants to rebuild the map with the
             accepted neighbors included.
+        unify_region: When ``True``, country ``<path>`` elements render fill-only (``stroke="none"``) so adjacent
+            countries with the same fill color blend into a single visual region — no internal borders, no
+            outline overlay. Default ``False`` keeps the per-country borders (M3 / M4 output bit-for-bit
+            unchanged). No-op when ``suggest_only=True``.
 
     Returns:
         On ``suggest_only=False`` → the :class:`~pathlib.Path` to the written SVG.
@@ -102,6 +107,7 @@ def build_map(
         id_lower=id_lower,
         width=width,
         padding=padding,
+        country_borders=not unify_region,
     )
 
     out = Path(output_path)
