@@ -1,6 +1,6 @@
 """Affine world-to-SVG transform, SVG path emission, and document assembly.
 
-Three building blocks composed by M4's ``build_map``:
+Three building blocks composed by ``build_map``:
 
 - :func:`geom_to_path` — (Multi)Polygon → SVG ``d`` attribute string.
 - :func:`affine_world_to_svg` — Y-flip + scale a projected frame into SVG pixel space.
@@ -23,11 +23,11 @@ from pycarto.geom import main_polygon_bounds
 
 logger = logging.getLogger(__name__)
 
-# Style theming is explicitly out-of-scope for v1 (see roadmap "Final scope decisions"); each ``<path>`` carries
-# its styling on SVG presentation attributes rather than via an embedded ``<style>`` block. Embedded ``<style>``
-# isn't reliably honored by every SVG renderer (some IDE previews and image-processing tools ignore it), and
-# presentation attributes render identically across every spec-compliant viewer.
-_COUNTRY_FILL: Final[str] = "#d8d8d8"
+# Style theming is explicitly out-of-scope; each ``<path>`` carries its styling on SVG presentation attributes
+# rather than via an embedded ``<style>`` block. Embedded ``<style>`` isn't reliably honored by every SVG
+# renderer (some IDE previews and image-processing tools ignore it), and presentation attributes render
+# identically across every spec-compliant viewer.
+_COUNTRY_FILL: Final[str] = "#797979"
 _BORDER_STROKE: Final[str] = "#555"
 _BORDER_STROKE_WIDTH: Final[str] = "0.6"
 # Sentinel ids dropped before emission. ``-99`` is Natural Earth's "no code assigned" marker;
@@ -76,14 +76,15 @@ def affine_world_to_svg(
     *,
     width: int = 1000,
     padding: int = 10,
+    fit_to_geometry: bool = False,
 ) -> tuple[GeoDataFrame, tuple[int, int, int, int], int]:
     """Y-flip and isotropically scale a projected frame into SVG pixel space.
 
     Each row contributes the bbox of its largest sub-polygon by area (via
-    :func:`pycarto.geom.main_polygon_bounds`) — same M2.5 strategy that ``auto_center_laea`` uses. Without this,
+    :func:`pycarto.geom.main_polygon_bounds`) — same strategy that ``auto_center_laea`` uses. Without this,
     Natural Earth's aggregation of overseas dependencies into the parent country (Caribbean NL inside ``NLD``,
     French Guiana inside ``FRA``, Hawaii / Alaska inside ``USA``) would project into far-flung coordinates and
-    pull the affine bbox across the canvas, deforming the aspect ratio (the M3.5 fix). Tiny overseas sub-polygons
+    pull the affine bbox across the canvas, deforming the aspect ratio. Tiny overseas sub-polygons
     *still appear* in the rendered geometry and project to off-canvas SVG coordinates — they're outside the
     viewBox so renderers clip them, but the path data stays in the file. A future opt-in ``drop_overseas``
     helper would strip them entirely.
@@ -107,6 +108,11 @@ def affine_world_to_svg(
             map.
         width: Output SVG width in pixels.
         padding: Margin in pixels around the map (applied symmetrically on all four sides).
+        fit_to_geometry: When ``True``, size the canvas to ``gdf.total_bounds`` instead of the
+            per-row ``main_polygon_bounds`` aggregation. Use when the caller has already pruned
+            far-flung outliers (typically via ``drop_overseas`` with a targeted iso list) and
+            wants the remaining secondary sub-polygons (Canada's Arctic Archipelago, Indonesia's
+            archipelago) fully visible. Default ``False`` preserves the ``main_polygon_bounds`` canvas.
 
     Returns:
         A 3-tuple ``(transformed_gdf, viewbox, height)`` where ``viewbox`` is ``(0, 0, width, height)`` and ``height``
@@ -117,14 +123,21 @@ def affine_world_to_svg(
             single point, a vertical / horizontal strip, or an all-empty-geometry frame. The scale factor would
             otherwise divide by zero or silently collapse the canvas.
     """
-    bounds = [main_polygon_bounds(g) for g in gdf.geometry if isinstance(g, BaseGeometry) and not g.is_empty]
-    if bounds:
-        mins_x, mins_y, maxs_x, maxs_y = zip(*bounds, strict=True)
-        minx, miny = float(min(mins_x)), float(min(mins_y))
-        maxx, maxy = float(max(maxs_x)), float(max(maxs_y))
-    else:
-        # All-empty frame: total_bounds is NaN; the guard below catches it.
+    if fit_to_geometry:
+        # ``total_bounds`` expands the canvas to encompass every sub-polygon in the frame — useful when the
+        # caller has already pruned far-flung outliers (e.g., via ``drop_overseas`` with a targeted iso list)
+        # and wants the secondary sub-polygons of the remaining rows (Canada's Arctic Archipelago, Indonesia's
+        # archipelago) to be fully visible instead of clipped by a ``main_polygon_bounds``-derived canvas.
         minx, miny, maxx, maxy = gdf.total_bounds
+    else:
+        bounds = [main_polygon_bounds(g) for g in gdf.geometry if isinstance(g, BaseGeometry) and not g.is_empty]
+        if bounds:
+            mins_x, mins_y, maxs_x, maxs_y = zip(*bounds, strict=True)
+            minx, miny = float(min(mins_x)), float(min(mins_y))
+            maxx, maxy = float(max(maxs_x)), float(max(maxs_y))
+        else:
+            # All-empty frame: total_bounds is NaN; the guard below catches it.
+            minx, miny, maxx, maxy = gdf.total_bounds
     map_w = maxx - minx
     map_h = maxy - miny
     if not (map_w > 0 and map_h > 0):
@@ -148,6 +161,7 @@ def render_svg(
     width: int = 1000,
     padding: int = 10,
     country_borders: bool = True,
+    fit_to_geometry: bool = False,
 ) -> str:
     r"""Render a projected ``GeoDataFrame`` as a complete SVG document string.
 
@@ -176,12 +190,16 @@ def render_svg(
             When ``False``, country paths render fill-only (``stroke="none"``) — used by
             :func:`pycarto.build_map` when ``unify_region=True`` so adjacent countries with the same fill blend
             into a single visual region.
+        fit_to_geometry: Forwarded to :func:`affine_world_to_svg` — switches the canvas from per-row
+            ``main_polygon_bounds`` aggregation to ``gdf.total_bounds``.
 
     Returns:
         The full SVG document as a UTF-8-safe string with ``\\n`` line endings, ready for
         ``Path.write_text(..., encoding="utf-8")``.
     """
-    transformed, viewbox, height = affine_world_to_svg(gdf, width=width, padding=padding)
+    transformed, viewbox, height = affine_world_to_svg(
+        gdf, width=width, padding=padding, fit_to_geometry=fit_to_geometry
+    )
 
     entries: list[tuple[str, str]] = []
     for _, row in transformed.iterrows():
@@ -202,7 +220,13 @@ def render_svg(
             'stroke-linejoin="round" vector-effect="non-scaling-stroke"'
         )
     else:
-        country_attrs = f'fill="{_COUNTRY_FILL}" stroke="none"'
+        # Same-color stroke covers sub-pixel anti-aliasing seams between adjacent paths so the unified
+        # region renders as one solid color — without this, browser SVG renderers leave faint hairlines
+        # where adjacent country paths meet, defeating the visual point of ``unify_region=True``.
+        country_attrs = (
+            f'fill="{_COUNTRY_FILL}" stroke="{_COUNTRY_FILL}" stroke-width="0.5" '
+            'stroke-linejoin="round" vector-effect="non-scaling-stroke"'
+        )
 
     # Default ``escape`` only handles ``<``, ``>``, ``&`` — extend to ``"`` so a configurable ``id_field``
     # carrying double-quotes (custom column, ``NAME`` variants in non-NE data, etc.) can't break the SVG attribute.

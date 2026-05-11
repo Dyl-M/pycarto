@@ -36,7 +36,7 @@ _BBOX_BUFFER_DEG: Final[float] = 1.0
 # shared-border. Within each rank, descending score then ascending iso for deterministic diffs.
 _REASON_RANK: Final[dict[str, int]] = {"enclave": 0, "shared_border": 1}
 
-# TODO(post-v1): swap the inner candidate-by-candidate loop for a ``shapely.strtree.STRtree`` if profiling on
+# TODO: swap the inner candidate-by-candidate loop for a ``shapely.strtree.STRtree`` if profiling on
 #  full-NE world selections shows it matters. ~1 s on regional selections, ~10 s worst-case continent-wide.
 
 

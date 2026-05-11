@@ -29,11 +29,11 @@ import httpxyz
 NE_50M_URL = "https://naciscdn.org/naturalearth/50m/cultural/ne_50m_admin_0_countries.zip"
 NE_50M_SHP_NAME = "ne_50m_admin_0_countries.shp"
 
-# TODO(post-v1): pin reproducibility by recording an expected SHA256 of the zip and verifying on download. The
+# TODO: pin reproducibility by recording an expected SHA256 of the zip and verifying on download. The
 #  natural-earth-vector GitHub repo does not ship the bundled zip as a release asset or repo path, so URL-based pinning
 #  isn't viable; content-hash pinning is the realistic option.
 
-# TODO(post-v1): support resolutions "10m" and "110m" (the signature already accepts the parameter).
+# TODO: support resolutions "10m" and "110m" (the signature already accepts the parameter).
 
 logger = logging.getLogger(__name__)
 

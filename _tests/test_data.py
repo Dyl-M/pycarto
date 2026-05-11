@@ -251,7 +251,7 @@ def test_load_countries_uppercases_columns(
 
 
 def test_select_filters_by_iso_a3_eh(fake_world: gpd.GeoDataFrame) -> None:
-    """The roadmap M1 gate: load + select(['BEL','NLD','LUX']) returns 3 rows."""
+    """Core data-layer contract: select(['BEL','NLD','LUX']) on a known frame returns those 3 rows."""
     sel = select(fake_world, ["BEL", "NLD", "LUX"])
     assert sel.shape[0] == 3
     assert set(sel["ISO_A3_EH"]) == {"BEL", "NLD", "LUX"}

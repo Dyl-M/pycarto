@@ -24,7 +24,7 @@ def test_author() -> None:
 
 
 def test_public_api_exports() -> None:
-    """``from pycarto import ...`` exposes the M4 public surface."""
+    """``from pycarto import ...`` exposes the public surface: build_map, suggest_neighbors, Suggestion."""
     assert callable(build_map)
     assert callable(suggest_neighbors)
     assert Suggestion.__name__ == "Suggestion"

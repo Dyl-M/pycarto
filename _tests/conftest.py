@@ -48,8 +48,8 @@ def country_with_overseas() -> gpd.GeoDataFrame:
     """One-row gdf modelling a metropolitan polygon plus a tiny overseas dependency.
 
     Mirrors Natural Earth's ``admin_0_countries`` aggregation (Caribbean NL inside ``NLD`` etc.). The metropolitan
-    box dominates by area so ``_main_polygon_bounds`` picks it; M2.5 asserts the auto-derived center stays inside
-    that bbox rather than drifting into the Atlantic.
+    box dominates by area so ``main_polygon_bounds`` picks it, and the auto-derived projection center stays
+    inside that bbox rather than drifting into the Atlantic.
     """
     metropolitan = box(2, 49, 7, 52)  # 5deg x 3deg = 15 deg2 in NW Europe
     overseas = box(-70, 12, -67, 13)  # 3deg x 1deg = 3 deg2 in the Caribbean
@@ -61,7 +61,7 @@ def country_with_overseas() -> gpd.GeoDataFrame:
 
 @pytest.fixture
 def overseas_tied_areas() -> gpd.GeoDataFrame:
-    """One-row gdf with two equal-area sub-polygons — locks the M2.5 first-by-index tie-break."""
+    """One-row gdf with two equal-area sub-polygons — locks the first-by-index tie-break."""
     first = box(0, 0, 2, 2)  # area = 4
     second = box(50, 50, 52, 52)  # area = 4
     return gpd.GeoDataFrame(
@@ -88,9 +88,9 @@ def projected_square() -> gpd.GeoDataFrame:
 def benelux_projected(fake_world: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """BEL/NLD/LUX subset of ``fake_world`` reprojected to LAEA Europe.
 
-    Mirrors the M3 gate (Benelux selection). Built on synthetic boxes from ``fake_world`` rather than real Natural
-    Earth geometry so the SVG snapshot stays deterministic and the test runs without network — real-shapefile
-    coverage is deferred to the M6 ``network``-marked end-to-end test.
+    Built on synthetic boxes from ``fake_world`` rather than real Natural Earth geometry so the SVG snapshot
+    stays deterministic and the test runs without network — real-shapefile coverage lives in the
+    ``@pytest.mark.network`` end-to-end tests.
     """
     return reproject(select(fake_world, ["BEL", "NLD", "LUX"]), REGION_PROJECTIONS["europe"])
 
@@ -99,7 +99,7 @@ def benelux_projected(fake_world: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 def enclave_synthetic() -> gpd.GeoDataFrame:
     """5-country frame where the central polygon is fully enclosed by 4 frame strips.
 
-    Used by M5 enclave-detection tests: with selection ``{"NTH","STH","EST","WST"}``, the candidate ``"CTR"``
+    Used by enclave-detection tests: with selection ``{"NTH","STH","EST","WST"}``, the candidate ``"CTR"``
     has every neighbor in the selection (single-point corner contacts between strips fall below the adjacency
     epsilon and don't count) → score 1.0.
     """
@@ -173,7 +173,7 @@ def adjacent_polygons() -> gpd.GeoDataFrame:
 
     The intermediate vertices on the shared boundary deviate slightly from x=5 (alternating ±0.05) so that
     Douglas-Peucker has real work to do: with collinear vertices, perpendicular distance is zero and the
-    simplifier is a no-op, which would make the M2 topology-preservation gate vacuous.
+    simplifier is a no-op, which would make the topology-preservation gate vacuous.
     """
     left = Polygon([(0, 0), (5, 0), (5.05, 1.2), (4.95, 2.5), (5.05, 3.7), (5, 5), (0, 5)])
     right = Polygon([(5, 0), (10, 0), (10, 5), (5, 5), (5.05, 3.7), (4.95, 2.5), (5.05, 1.2)])

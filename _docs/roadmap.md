@@ -22,7 +22,8 @@
 | M3.5 — Overseas-territories canvas         | Complete 2026-05-10 |
 | M4 — `build_map` orchestration             | Complete 2026-05-10 |
 | M5 — Border suggester + region unification | Complete 2026-05-10 |
-| M6 — Polish                                | Pending             |
+| M6 — Polish                                | Complete 2026-05-11 |
+| Post-v1 — Geometry-trim helpers + demo     | Shipped 2026-05-11  |
 
 ## Target package structure
 
@@ -153,7 +154,7 @@ pytest -m "not network"` all clean; coverage on `pycarto/geom.py` stays at 100%.
   → sort by post-lowercase id (stable diffs) → emit one `<path>` per surviving row → wrap in an `<svg>` document with
   a `<g id="countries">` group. Drops rows whose id is in `{"", "-99", "nan"}` after stripping (NE uses `-99` for
   un-coded territories) or whose geometry produces an empty `d`. Uses `xml.sax.saxutils.escape` (stdlib) on the id.
-  Styling is emitted as SVG **presentation attributes** on each `<path>` (`fill="#d8d8d8" stroke="#555" …`) rather
+  Styling is emitted as SVG **presentation attributes** on each `<path>` (`fill="#797979" stroke="#555" …`) rather
   than via an embedded `<style>` block — see M5 for the renderer-compatibility rationale. (Originally M3 used a
   `<style>` block; this was migrated in M5 alongside the region-outline work.)
 - [x] No new runtime deps — reuses `shapely.affinity.affine_transform` (already pulled by M2.5) and stdlib
@@ -301,8 +302,8 @@ def suggest_neighbors(
   region. No internal borders, no outline overlay, no geometric dissolve — purely a styling switch. Default
   `False` keeps the per-country border stroke (M3 / M4 output bit-for-bit unchanged).
 - [x] New `country_borders: bool = True` kwarg on `svg.render_svg`. ``True`` → each country path carries
-  ``fill="#d8d8d8" stroke="#555" stroke-width="0.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"``.
-  ``False`` → ``fill="#d8d8d8" stroke="none"``. `build_map` passes `country_borders=not unify_region` through.
+  ``fill="#797979" stroke="#555" stroke-width="0.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"``.
+  ``False`` → ``fill="#797979" stroke="none"``. `build_map` passes `country_borders=not unify_region` through.
 - [x] **Styling switched from `<style>` block to SVG presentation attributes** (`fill="…"` / `stroke="…"` /
   `stroke-width="…"` / `stroke-linejoin="round"` / `vector-effect="non-scaling-stroke"` written directly on each
   `<path>`). The original `_DEFAULT_STYLE` constant was dropped — embedded `<style>` isn't reliably parsed by
@@ -351,13 +352,72 @@ pass under `pytest -m network`. The M3 Benelux golden snapshot stays bit-identic
 run ruff format --check . && uv run mypy pycarto && uv run pytest -m "not network"` all clean; coverage stays at
 100% across the touched modules.
 
-### M6 — Polish (¼ day)
+### M6 — Polish (¼ day) — Complete (2026-05-11)
 
-- [ ] README usage block: minimal `from pycarto import build_map; build_map([...], "out.svg", projection=...)`
-- [ ] README "suggestions" block: same with `suggest_only=True`
-- [ ] One end-to-end happy-path golden SVG checked into `_tests/fixtures/`
+- [x] README usage block: minimal `from pycarto import build_map; build_map([...], "out.svg", projection=...)`
+  — already drafted alongside M4 / M5; M6 verified it runs as written against the shipped API
+  (`README.md` Quick Start, lines 46-88).
+- [x] README "suggestions" block: same with `suggest_only=True` — `build_map(..., suggest_only=True)` and the
+  direct `suggest_neighbors(...)` example both verified end-to-end. The `suggest_neighbors` Baltic example
+  (`["UKR","POL","LTU","LVA","RUS"]`) returns `Suggestion(iso="BLR", reason="enclave", score=1.0,
+  neighbors_in_selection=("LTU","LVA","POL","RUS","UKR"))` — matches the inline `# ->` expected-output comment
+  in the README verbatim.
+- [x] One end-to-end happy-path golden SVG checked into the repo. Lands at
+  `_tests/test_build_map/test_build_map_se_asia_real_ne_golden_snapshot.svg` (per-test-file
+  `pytest-regressions` convention established by M3 / M5, matching `CLAUDE.md` "Module layout" — not the
+  `_tests/fixtures/` path originally drafted here, which would have introduced a one-off directory). The
+  test mirrors the README SE Asia Quick Start example verbatim (11 ISO codes,
+  `REGION_PROJECTIONS["se_asia"]`, `simplify_tolerance=4000`) so "README runs as written" is provably locked
+  in by the snapshot. Gated by `@pytest.mark.network` — CI default (`pytest -m "not network"`) keeps the NE
+  fetch out of CI; local runs and the gate command (`uv run pytest`) include it.
 
-**Gate:** `uv run pytest && uv run ruff check` green; README runs as written.
+**Gate:** ✔ `uv run pytest` (93 passed — 89 default + 4 `@network`) and `uv run ruff check` both green;
+all three README Quick Start blocks smoke-tested in a clean temp directory and produced their advertised
+outputs.
+
+### Post-v1 — Geometry-trim helpers + FIFAe demo — Shipped (2026-05-11)
+
+Follow-up work driven by the FIFAe regional maps demo (`_demos/fifae_regions.py`) exposing edge cases v1
+didn't cover: off-canvas Arctic clipping for North America, Alaska's antimeridian-wrapping Aleutians, and
+sub-pixel anti-aliasing seams between adjacent paths in `unify_region=True` mode. Three new public helpers
+in `pycarto.geom`, three new kwargs on `build_map`, and one styling refinement.
+
+- [x] **`pycarto.geom.drop_overseas(gdf, *, iso_codes=None, iso_field="ISO_A3_EH", top_n=1)`** —
+  reduces targeted `MultiPolygon` rows to their `top_n` largest sub-polygons by area. Ties resolve
+  first-by-index (mirrors the M2.5 `main_polygon_bounds` contract).
+- [x] **`build_map(..., drop_overseas=...)`** — accepts three shapes: `bool` (all rows,
+  `top_n=1`), `Iterable[str]` (named rows, `top_n=1`), `dict[str, int]` (per-ISO `top_n`). The dict
+  form is how `_demos/fifae_regions.py` keeps USA's contiguous 48 + Alaska while dropping Hawaii /
+  Aleutians / PR (`drop_overseas={"USA": 2}`).
+- [x] **`pycarto.geom.clip_to_canvas(gdf)`** — intersects every geometry with the union bbox of all
+  rows' main sub-polygons. Off-canvas sub-polygons disappear, boundary-crossing ones get cleanly
+  cut, in-canvas ones survive intact. Less aggressive than `drop_overseas` — preferred for
+  archipelago regions where secondary islands (Indonesia / Philippines / NZ) should stay visible.
+- [x] **`build_map(..., clip_to_canvas=False)`** — runs after `reproject` (canvas bbox needs
+  projected coordinates) and before `simplify_topological`.
+- [x] **`build_map(..., fit_canvas_to_geometry=False)`** — threads `fit_to_geometry: bool` through
+  to `render_svg` and `affine_world_to_svg`. When `True`, the SVG canvas is sized to
+  `gdf.total_bounds` instead of the per-row `main_polygon_bounds` aggregation. Use after
+  `drop_overseas` has trimmed far-flung outliers and you want the remaining secondary sub-polygons
+  (Canada's Arctic Archipelago) fully visible.
+- [x] **Same-color stroke for `unify_region=True`** — country paths now emit `fill="#797979"
+  stroke="#797979" stroke-width="0.5"` (was `stroke="none"`). The same-color stroke covers
+  sub-pixel anti-aliasing seams that browser SVG renderers leave between adjacent paths sharing a
+  boundary. M5 unified-Benelux golden snapshot regenerated.
+- [x] **`_demos/fifae_regions.py`** — runnable demo generating three FIFAe regional maps
+  (Asia East & Oceania, Asia West, North & Central America). Each region has a per-region
+  projection override (Robinson `+lon_0=180` for Asia East / Oceania to handle antimeridian span,
+  Robinson `+lon_0=-100` for N&CA to keep Alaska adjacent to mainland USA) and per-region
+  clipping strategy (`clip_to_canvas=True` for Asia; `drop_overseas={"USA": 2}` +
+  `fit_canvas_to_geometry=True` for N&CA). Each region also runs
+  `suggest_neighbors(shared_border_threshold=0.3)` and prints candidates. `pyproject.toml` adds
+  `"_demos/**" = ["T20"]` to ruff per-file-ignores so `print()` calls are allowed in demo scripts.
+
+**Gate:** ✔ `uv run pytest && uv run ruff check`: 112 tests pass (108 default + 4 `@network`), ruff
+clean. M3 / M6 SE Asia golden snapshots untouched (defaults preserve v1 behavior bit-for-bit). M5
+unified-Benelux snapshot regenerated to reflect the same-color stroke. Public API surface unchanged
+(`from pycarto import build_map, suggest_neighbors, Suggestion` — the new helpers stay under
+`pycarto.geom`, matching the canonical-home convention used for `REGION_PROJECTIONS`).
 
 ## Risks / gotchas to track during implementation
 
@@ -373,9 +433,10 @@ run ruff format --check . && uv run mypy pycarto && uv run pytest -m "not networ
   2. `affine_world_to_svg` deformed the canvas aspect ratio → M3.5 mirrors the same per-row aggregation via
      the public `main_polygon_bounds` helper (promoted from private in M3.5).
   Off-canvas `<path d>` data for overseas parts still emits into the per-country SVG paths (renderers clip
-  to viewBox), so the output file is ~30% larger for selections including NLD / FRA / USA / GBR; an opt-in
-  `drop_overseas` helper that strips them entirely is deferred to post-v1. Full subunit-level splitting
-  (separate `<path>` per dependency) stays post-v1. (M5's `unify_region=True` is unaffected by overseas
+  to viewBox) by default, so the output file is ~30% larger for selections including NLD / FRA / USA / GBR;
+  the post-v1 opt-in `drop_overseas` / `clip_to_canvas` / `fit_canvas_to_geometry` kwargs on `build_map`
+  give callers full control over how overseas geometry is handled (see the Post-v1 section above). Full
+  subunit-level splitting (separate `<path>` per dependency) stays out of scope. (M5's `unify_region=True` is unaffected by overseas
   territories — the simplified styling-only design renders them as borderless fill silhouettes consistent
   with the mainland; no overlay is drawn that would single them out.)
 - **Singapore / GUF / small islands**: present in 1:50m, drop out at 1:110m. Tests at 1:110m must avoid them or use

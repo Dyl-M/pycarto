@@ -24,21 +24,27 @@ The project was started as a side project to help fill out
 [Liquipedia's region maps category](https://liquipedia.net/commons/Category:Region_Maps), but the outputs are
 general-purpose — they work in any context where a clean SVG region map is needed.
 
-> **Status:** Pre-alpha — environment scaffolding (M0), the data layer (M1), the geometry pipeline (M2 + M2.5
-> overseas-territories centering fix), SVG emission (M3 + M3.5 overseas-territories canvas-bounds fix),
-> `build_map` orchestration (M4), and the border-suggester + region-unification module (M5) are complete;
-> only polish (M6) is pending. See the [Roadmap](_docs/roadmap.md) for milestone progress.
+> **Status:** Pre-alpha — the full data → geometry → SVG pipeline ships: Natural Earth fetch + cache, projection
+> presets + auto-centered LAEA, topology-preserving simplification, overseas-territory-aware canvas sizing,
+> per-country `<path>` emission, `build_map` orchestration, border-aware `suggest_neighbors`, region unification
+> with seam-free rendering, and geometry-trim helpers (`drop_overseas` / `clip_to_canvas` /
+> `fit_canvas_to_geometry`) for fine-grained control over what lands in the canvas.
 
 ## Project Structure
 
 ```
 pycarto/
-├── __init__.py    # public API: build_map (with unify_region), suggest_neighbors, Suggestion (M4 + M5)
-├── data.py        # Natural Earth fetch, cache, column normalization (M1)
-├── geom.py        # projection presets, reprojection, topological simplification (M2 + M2.5)
-├── borders.py     # adjacency graph + neighbor suggester (M5)
-├── svg.py         # affine world→SVG, path emission, fill-only unified mode (M3 + M3.5 + M5)
+├── __init__.py    # public API: build_map (with unify_region / drop_overseas / clip_to_canvas /
+│                  #             fit_canvas_to_geometry kwargs), suggest_neighbors, Suggestion
+├── data.py        # Natural Earth fetch, cache, column normalization
+├── geom.py        # projection presets, reprojection, topological simplification,
+│                  #   main_polygon_bounds / drop_overseas / clip_to_canvas helpers
+├── borders.py     # adjacency graph + neighbor suggester
+├── svg.py         # affine world→SVG, path emission, country_borders toggle
 └── py.typed       # PEP 561 typed-library marker
+_demos/
+└── fifae_regions.py  # runnable demo: generates 3 FIFAe regional maps (Asia East & Oceania, Asia West,
+                      #                North & Central America) and prints `suggest_neighbors` output
 ```
 
 ## Quick Start
@@ -73,7 +79,7 @@ suggestions = build_map(
 )
 ```
 
-Add `unify_region=True` for a borderless rendering — every country `<path>` emits `stroke="none"` so adjacent
+Add `unify_region=True` for a borderless rendering — every country `<path>` emits a same-color stroke so adjacent
 countries with the same fill visually merge into a single region:
 
 ```python
@@ -85,7 +91,17 @@ build_map(
 ```
 
 Per-country `<path id="…">` elements stay intact (just borderless), so they remain queryable for downstream
-theming or selection.
+theming or selection. Adjacent paths render with a same-color stroke so sub-pixel anti-aliasing seams between
+neighboring countries disappear.
+
+For a runnable end-to-end example, see [`_demos/fifae_regions.py`](_demos/fifae_regions.py) — it generates
+three FIFAe regional maps (Asia East & Oceania, Asia West, North & Central America), showing how to
+combine custom Robinson projections, per-region `clip_to_canvas` / `drop_overseas` / `fit_canvas_to_geometry`
+strategies, and `suggest_neighbors` output:
+
+```bash
+uv run python _demos/fifae_regions.py
+```
 
 ## Development
 

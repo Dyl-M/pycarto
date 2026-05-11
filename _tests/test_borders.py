@@ -1,4 +1,4 @@
-"""Tests for ``pycarto.borders`` — Suggestion schema (M4) + suggest_neighbors algorithm (M5)."""
+"""Tests for ``pycarto.borders`` — Suggestion schema + suggest_neighbors algorithm."""
 
 # Standard library
 from dataclasses import FrozenInstanceError
@@ -20,12 +20,12 @@ def _persist(gdf: gpd.GeoDataFrame, tmp_path: Path, name: str = "data.shp") -> P
 
 
 # ----------------------------------------------------------------------------------------------------------------------
-# Suggestion dataclass (M4 forward-decl, kept verbatim through M5)
+# Suggestion dataclass
 # ----------------------------------------------------------------------------------------------------------------------
 
 
 def test_suggestion_dataclass_fields() -> None:
-    """``Suggestion`` schema matches the roadmap §M5 spec."""
+    """``Suggestion`` carries iso, reason, score, and the tuple of neighbors-in-selection that justified it."""
     s = Suggestion(iso="CHE", reason="enclave", score=1.0, neighbors_in_selection=("FRA", "DEU", "ITA", "AUT"))
     assert s.iso == "CHE"
     assert s.reason == "enclave"
@@ -166,7 +166,7 @@ def test_suggest_neighbors_sort_order_enclaves_first_then_descending_score() -> 
 
 
 # ----------------------------------------------------------------------------------------------------------------------
-# Network-marked roadmap fixture cases (real Natural Earth 1:50m)
+# Network-marked fixture cases (real Natural Earth 1:50m)
 # ----------------------------------------------------------------------------------------------------------------------
 
 

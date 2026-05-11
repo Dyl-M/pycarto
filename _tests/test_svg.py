@@ -130,22 +130,31 @@ def test_affine_world_to_svg_padding_inset_on_all_sides(projected_square: gpd.Ge
 
 
 def test_affine_world_to_svg_ignores_overseas_dependencies(country_with_overseas: gpd.GeoDataFrame) -> None:
-    """M3.5 gate: canvas bounds derive from the metropolitan polygon, not the metropolitan + overseas span.
+    """Canvas bounds derive from the metropolitan polygon, not the metropolitan + overseas span.
 
     ``country_with_overseas`` is a 1-row gdf whose MultiPolygon = ``box(2, 49, 7, 52)`` (5x3 metropolitan) +
     ``box(-70, 12, -67, 13)`` (3x1 Caribbean). ``affine_world_to_svg`` doesn't validate CRS, so we pass the
     WGS84 fixture directly — the largest-sub-polygon math is unit-agnostic.
 
-    Without M3.5: ``gdf.total_bounds = (-70, 12, 7, 52)`` → ``map_w=77, map_h=40`` →
+    Naive ``total_bounds``: ``(-70, 12, 7, 52)`` → ``map_w=77, map_h=40`` →
     ``scale = 980/77 = 12.727`` → ``height = int(40*12.727 + 20) = 529``.
 
-    With M3.5: bounds from metropolitan only → ``map_w=5, map_h=3`` →
+    With per-row ``main_polygon_bounds`` aggregation: bounds from metropolitan only → ``map_w=5, map_h=3`` →
     ``scale = 980/5 = 196`` → ``height = int(3*196 + 20) = 608``.
 
     The 529-vs-608 delta is the unambiguous signal that the per-row largest-sub-polygon aggregation is wired in.
     """
     _, _, height = affine_world_to_svg(country_with_overseas, width=1000, padding=10)
     assert height == 608
+
+
+def test_affine_world_to_svg_fit_to_geometry_expands_to_total_bounds(
+    country_with_overseas: gpd.GeoDataFrame,
+) -> None:
+    """``fit_to_geometry=True`` switches the canvas to ``gdf.total_bounds`` — overseas parts get included."""
+    # total_bounds=(-70,12,7,52) → map_w=77, map_h=40 → scale=980/77≈12.727 → height=int(40*scale+20)=529
+    _, _, height = affine_world_to_svg(country_with_overseas, width=1000, padding=10, fit_to_geometry=True)
+    assert height == 529
 
 
 @pytest.mark.parametrize(
@@ -260,7 +269,7 @@ def test_render_svg_document_shape(projected_square: gpd.GeoDataFrame) -> None:
     assert 'height="1000"' in out
     # No embedded ``<style>`` block — styling is on per-path presentation attributes for renderer compatibility.
     assert "<style>" not in out
-    assert 'fill="#d8d8d8"' in out
+    assert 'fill="#797979"' in out
     assert 'stroke="#555"' in out
     assert '<g id="countries">' in out
     assert out.endswith("</svg>\n")
@@ -282,37 +291,37 @@ def test_render_svg_benelux_golden_snapshot(
     benelux_projected: gpd.GeoDataFrame,
     file_regression: FileRegressionFixture,
 ) -> None:
-    """M3 gate: Benelux selection (synthetic fake_world subset, LAEA Europe) round-trips to a stable SVG snapshot."""
+    """Benelux selection (synthetic fake_world subset, LAEA Europe) round-trips to a stable SVG snapshot."""
     file_regression.check(render_svg(benelux_projected), extension=".svg")
 
 
 # ----------------------------------------------------------------------------------------------------------------------
-# render_svg — country_borders flag (M5)
+# render_svg — country_borders flag
 # ----------------------------------------------------------------------------------------------------------------------
 
 
-def test_render_svg_country_borders_false_drops_strokes(benelux_projected: gpd.GeoDataFrame) -> None:
-    """``country_borders=False`` emits country paths with ``stroke="none"`` — no per-country outlines drawn."""
+def test_render_svg_country_borders_false_uses_same_color_stroke(benelux_projected: gpd.GeoDataFrame) -> None:
+    """``country_borders=False`` paints stroke and fill the same color — covers sub-pixel anti-aliasing seams."""
     out_no_borders = render_svg(benelux_projected, country_borders=False)
     out_with_borders = render_svg(benelux_projected)
 
     # Fills are present in both modes.
-    assert out_no_borders.count('fill="#d8d8d8"') == 3
-    assert out_with_borders.count('fill="#d8d8d8"') == 3
-    # ``country_borders=False`` → every country path carries ``stroke="none"`` and no ``stroke="#555"``.
-    assert out_no_borders.count('stroke="none"') == 3
+    assert out_no_borders.count('fill="#797979"') == 3
+    assert out_with_borders.count('fill="#797979"') == 3
+    # ``country_borders=False`` → every country path carries a same-color stroke (no dark border).
+    assert out_no_borders.count('stroke="#797979"') == 3
     assert 'stroke="#555"' not in out_no_borders
-    # Default → each country path carries the border stroke directly.
+    # Default → each country path carries the dark border stroke directly.
     assert out_with_borders.count('stroke="#555"') == 3
-    assert 'stroke="none"' not in out_with_borders
+    assert 'stroke="#797979"' not in out_with_borders
 
 
 def test_render_svg_country_borders_false_emits_no_region_overlay(benelux_projected: gpd.GeoDataFrame) -> None:
-    """``country_borders=False`` produces fills-only output — no ``<path id="region">`` overlay element."""
+    """``country_borders=False`` produces fill-only-looking output — no ``<path id="region">`` overlay element."""
     out = render_svg(benelux_projected, country_borders=False)
 
     assert 'id="region"' not in out
-    # No element carries an ``stroke="#555"`` border in this mode.
+    # No element carries the dark ``#555`` border stroke in this mode.
     assert 'stroke="#555"' not in out
 
 
@@ -320,5 +329,5 @@ def test_render_svg_benelux_unified_golden_snapshot(
     benelux_projected: gpd.GeoDataFrame,
     file_regression: FileRegressionFixture,
 ) -> None:
-    """M5 gate: Benelux + ``country_borders=False`` round-trips to a stable fills-only SVG snapshot."""
+    """Benelux + ``country_borders=False`` round-trips to a stable fills-only SVG snapshot."""
     file_regression.check(render_svg(benelux_projected, country_borders=False), extension=".svg")

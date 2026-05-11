@@ -8,6 +8,8 @@ from pathlib import Path
 from pycarto.borders import Suggestion, suggest_neighbors
 from pycarto.data import load_countries, select
 from pycarto.geom import auto_center_laea, reproject, simplify_topological
+from pycarto.geom import clip_to_canvas as _clip_to_canvas
+from pycarto.geom import drop_overseas as _drop_overseas
 from pycarto.svg import render_svg
 
 __version__ = "0.0.0"
@@ -39,6 +41,9 @@ def build_map(
     suggest_only: bool = False,
     suggestions: Iterable[str] | None = None,
     unify_region: bool = False,
+    drop_overseas: dict[str, int] | Iterable[str] | bool = False,
+    clip_to_canvas: bool = False,
+    fit_canvas_to_geometry: bool = False,
 ) -> Path | list[Suggestion]:
     """Generate a region SVG from a list of ISO codes by composing data → geom → svg.
 
@@ -64,7 +69,7 @@ def build_map(
             directories are created if missing. Ignored when ``suggest_only=True``.
         projection: PROJ string (e.g. a :data:`pycarto.geom.REGION_PROJECTIONS` preset). ``None`` → derive via
             :func:`pycarto.geom.auto_center_laea` from the selection's WGS84 bbox. Selections spanning the
-            antimeridian (>180° longitude) will surface the M2 :class:`UserWarning` from ``auto_center_laea``.
+            antimeridian (>180° longitude) will surface the :class:`UserWarning` from ``auto_center_laea``.
         simplify_tolerance: ``topojson.toposimplify`` tolerance in projection units (meters for LAEA). ``<= 0``
             short-circuits to a no-simplify defensive copy via :func:`pycarto.geom.simplify_topological`.
         width: SVG canvas width in pixels.
@@ -80,8 +85,36 @@ def build_map(
             accepted neighbors included.
         unify_region: When ``True``, country ``<path>`` elements render fill-only (``stroke="none"``) so adjacent
             countries with the same fill color blend into a single visual region — no internal borders, no
-            outline overlay. Default ``False`` keeps the per-country borders (M3 / M4 output bit-for-bit
-            unchanged). No-op when ``suggest_only=True``.
+            outline overlay. Default ``False`` keeps the per-country borders. No-op when
+            ``suggest_only=True``.
+        drop_overseas: Reduce ``MultiPolygon`` rows to their top sub-polygons by area before
+            reprojection (via :func:`pycarto.geom.drop_overseas`). Three forms:
+
+            - ``bool``: ``True`` reduces every row to its largest sub-polygon (mainland only).
+            - ``Iterable[str]``: reduces only the named ISO codes (matched against ``filter_field``)
+              to their largest sub-polygon. Use when specific countries have problematic far-flung
+              sub-polygons but others should stay intact.
+            - ``dict[str, int]``: per-ISO ``{iso: top_n}`` map. For each named country, keep the
+              ``top_n`` largest sub-polygons. Use when a country has multiple major landmasses
+              you want to keep (e.g., ``{"USA": 2}`` keeps contiguous 48 + Alaska, drops Hawaii /
+              PR / Aleutians).
+
+            Default ``False`` is a no-op. No-op when ``suggest_only=True``.
+        clip_to_canvas: When ``True``, clip every geometry to the union bbox of all rows' main sub-polygons
+            after reprojection (via :func:`pycarto.geom.clip_to_canvas`). Off-canvas sub-polygons (Alaska,
+            Hawaii, Arctic Archipelago, Aleutians, etc.) disappear; sub-polygons crossing the canvas
+            boundary get cleanly cut with straight edges; in-canvas sub-polygons (Vancouver Island,
+            Newfoundland, Tasmania) survive intact. Less aggressive than ``drop_overseas=True`` — preferred
+            when the goal is a clean map without jagged off-canvas silhouettes but you still want the
+            visible islands of each country. Composable with ``drop_overseas`` (the order is
+            ``drop_overseas`` first, then ``clip_to_canvas``). No-op when ``suggest_only=True``.
+        fit_canvas_to_geometry: When ``True``, the SVG canvas is sized to ``gdf.total_bounds`` of the
+            (post-``drop_overseas``) geometry instead of the union of each row's main-polygon bounds.
+            Use this when you've already pruned the far-flung outliers (typically via a targeted
+            ``drop_overseas`` iso list) and want secondary sub-polygons of the remaining rows fully
+            visible — e.g., Canada's Arctic Archipelago in a North America map where ``drop_overseas
+            =["USA"]`` removed Alaska / Hawaii but left Canada's MultiPolygon untouched. Default
+            ``False`` preserves the ``main_polygon_bounds`` canvas. No-op when ``suggest_only=True``.
 
     Returns:
         On ``suggest_only=False`` → the :class:`~pathlib.Path` to the written SVG.
@@ -96,9 +129,19 @@ def build_map(
 
     countries = load_countries(shp_path)
     selection = select(countries, codes, filter_field=filter_field)
+    if isinstance(drop_overseas, bool):
+        if drop_overseas:
+            selection = _drop_overseas(selection)
+    elif isinstance(drop_overseas, dict):
+        for iso, top_n in drop_overseas.items():
+            selection = _drop_overseas(selection, iso_codes=[iso], iso_field=filter_field, top_n=top_n)
+    else:
+        selection = _drop_overseas(selection, iso_codes=drop_overseas, iso_field=filter_field)
 
     proj = projection if projection is not None else auto_center_laea(selection)
     projected = reproject(selection, proj)
+    if clip_to_canvas:
+        projected = _clip_to_canvas(projected)
     simplified = simplify_topological(projected, simplify_tolerance)
 
     svg_document = render_svg(
@@ -108,6 +151,7 @@ def build_map(
         width=width,
         padding=padding,
         country_borders=not unify_region,
+        fit_to_geometry=fit_canvas_to_geometry,
     )
 
     out = Path(output_path)
