@@ -40,14 +40,14 @@ Changelog = "https://github.com/Dyl-M/pycarto/blob/main/CHANGELOG.md"
 [dependency-groups]
 dev = [
     { include-group = "test" },
-    "mypy==2.0.0",
-    "ruff==0.15.12",
-    "types-shapely==2.1.0.20260508"
+    "mypy==2.1.0",
+    "ruff==0.15.15",
+    "types-shapely==2.1.0.20260518"
 ]
 test = [
-    "coverage==7.13.5",
+    "coverage==7.14.1",
     "pytest==9.0.3",
-    "pytest-regressions==2.10.0"
+    "pytest-regressions==2.11.0"
 ]
 
 # --- Ruff ---
