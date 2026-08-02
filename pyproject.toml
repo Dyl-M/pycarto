@@ -24,9 +24,9 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "geopandas>=1.1.3,<2",
+    "geopandas>=1.1.4,<2",
     "httpxyz>=0.31.2,<1",
-    "pyogrio>=0.12.1,<1",
+    "pyogrio>=0.13.0,<1",
     "shapely>=2.1.2,<3",
     "topojson>=1.10,<2",
 ]
@@ -40,14 +40,14 @@ Changelog = "https://github.com/Dyl-M/pycarto/blob/main/CHANGELOG.md"
 [dependency-groups]
 dev = [
     { include-group = "test" },
-    "mypy==2.0.0",
-    "ruff==0.15.12",
-    "types-shapely==2.1.0.20260508"
+    "mypy==2.3.0",
+    "ruff==0.16.0",
+    "types-shapely==2.1.0.20260728"
 ]
 test = [
-    "coverage==7.13.5",
-    "pytest==9.0.3",
-    "pytest-regressions==2.10.0"
+    "coverage==7.15.2",
+    "pytest==9.1.1",
+    "pytest-regressions==2.11.0"
 ]
 
 # --- Ruff ---
