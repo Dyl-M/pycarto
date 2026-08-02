@@ -149,10 +149,7 @@ def main() -> None:
     for region, iso_codes in FIFAE_REGIONS.items():
         added = SUGGESTIONS.get(region, [])
         combined = list(iso_codes) + list(added)
-        print(
-            f"\n=== {region}  ({len(iso_codes)} participants + {len(added)} added = "
-            f"{len(combined)} total) ==="
-        )
+        print(f"\n=== {region}  ({len(iso_codes)} participants + {len(added)} added = {len(combined)} total) ===")
 
         candidates = suggest_neighbors(combined, shared_border_threshold=0.3)
         if candidates:

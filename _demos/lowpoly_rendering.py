@@ -42,8 +42,8 @@ from pycarto.svg import render_svg
 # by up to ``SIMPLIFY_TOLERANCE`` meters from the original, so the value roughly bounds the
 # size of the smallest feature that survives. Reference points:
 #   ``4_000``                  pycarto default — clean coastlines
-#   ``15_000``–``30_000``      visibly faceted, still recognizable
-#   ``50_000``–``150_000``     heavily stylized blob (Liquipedia ``Map_of_Europe.svg`` aspect)
+#   ``15_000``-``30_000``      visibly faceted, still recognizable
+#   ``50_000``-``150_000``     heavily stylized blob (Liquipedia ``Map_of_Europe.svg`` aspect)
 # Note: pycarto emits one ``<path>`` per country, so even at very high tolerance the SVG
 # keeps N paths (visually merged by ``unify_region=True``) — not a literal single polygon.
 SIMPLIFY_TOLERANCE: float = 50_000.0
@@ -51,9 +51,9 @@ SIMPLIFY_TOLERANCE: float = 50_000.0
 # Drop any sub-polygon whose area (m² in the projected CRS) falls below this threshold.
 # Reference points (rough mental yardstick — actual area depends on the projection's local
 # distortion, so tune against the rendered output):
-#   ``1e8``    100 km² — a 10 km × 10 km square. Keeps Maldives-tier specks.
-#   ``1e9``    1 000 km² — a 30 km × 30 km square. Maldives / Cayman / small specks gone.
-#   ``1e10``   10 000 km² — a 100 km × 100 km square. Starts losing Cyprus / Jamaica.
+#   ``1e8``    100 km² — a 10 km x 10 km square. Keeps Maldives-tier specks.
+#   ``1e9``    1 000 km² — a 30 km x 30 km square. Maldives / Cayman / small specks gone.
+#   ``1e10``   10 000 km² — a 100 km x 100 km square. Starts losing Cyprus / Jamaica.
 MIN_POLYGON_AREA: float = 1e9
 
 # Per-region projection overrides (see ``_demos/fifae_regions.py`` for rationale).
@@ -72,15 +72,45 @@ CLIP_KWARGS: dict[str, dict[str, Any]] = {
 # FIFAe Nations League 2026 Week 2 Group Stage participants per bracket.
 FIFAE_REGIONS: dict[str, list[str]] = {
     "asia_east_oceania": [
-        "AUS", "BGD", "GUM", "IDN", "IND", "LAO", "NPL",
-        "BRN", "HKG", "KGZ", "MDV", "MYS", "NZL", "PNG",
+        # Group A
+        "AUS",
+        "BGD",
+        "GUM",
+        "IDN",
+        "IND",
+        "LAO",
+        "NPL",
+        # Group B
+        "BRN",
+        "HKG",
+        "KGZ",
+        "MDV",
+        "MYS",
+        "NZL",
+        "PNG",
     ],
     "asia_west": [
-        "ARE", "BHR", "JOR", "OMN", "QAT", "SAU", "UZB",
+        "ARE",
+        "BHR",
+        "JOR",
+        "OMN",
+        "QAT",
+        "SAU",
+        "UZB",
     ],
     "north_central_america": [
-        "CRI", "DOM", "PAN", "TTO", "USA",
-        "CAN", "CYM", "GUY", "PRI", "SLV",
+        # Group A
+        "CRI",
+        "DOM",
+        "PAN",
+        "TTO",
+        "USA",
+        # Group B
+        "CAN",
+        "CYM",
+        "GUY",
+        "PRI",
+        "SLV",
     ],
 }
 
